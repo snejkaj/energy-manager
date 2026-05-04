@@ -154,6 +154,10 @@ Status values are defined in [requirements-traceability.md](requirements-traceab
 | `HA-006` | `config.yaml` | review | implemented |
 | `HA-007` | `config.yaml` | review | implemented |
 | `HA-008` | `config.yaml` | future integration tests | planned |
+| `DOC-001` | `README.md` | review | implemented |
+| `DOC-002` | `README.md` | review | implemented |
+| `DOC-003` | `README.md`, `docs/requirements.md` | review | implemented |
+| `DOC-004` | `README.md` | review | implemented |
 
 ## Out-of-Scope Requirements
 

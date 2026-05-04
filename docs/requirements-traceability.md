@@ -102,6 +102,7 @@ When adding a new module, route, migration, or test suite:
 1. Add requirement comments in code.
 2. Add or update matrix rows.
 3. Add tests for requirements that describe deterministic behavior.
+4. Update `README.md` when user-facing behavior, setup, configuration, provider model, or project status changes.
 
 ## Coverage States
 

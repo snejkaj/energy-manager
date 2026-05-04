@@ -29,6 +29,7 @@ Areas:
 - `OPS`: operations, security, and runtime behavior
 - `ARC`: architecture and code organization
 - `HA`: Home Assistant app packaging and runtime integration
+- `DOC`: documentation and README maintenance
 
 ## Product Scope
 
@@ -205,6 +206,15 @@ Areas:
 | `HA-006` | The Home Assistant app must expose the web UI through ingress. |
 | `HA-007` | The Home Assistant app must not require privileged host access for the initial version. |
 | `HA-008` | The Home Assistant app may use the Home Assistant Core API through the Supervisor proxy when future Home Assistant state integration is needed. |
+
+## Documentation Requirements
+
+| ID | Requirement |
+| --- | --- |
+| `DOC-001` | The repository must include a `README.md` that is easy to read and describes the Home Assistant add-on. |
+| `DOC-002` | The README must explain the add-on purpose, current status, provider-based design, configuration, development commands, and requirement traceability. |
+| `DOC-003` | When updating user-facing behavior, setup, configuration, provider model, or project status, the README must be updated in the same change. |
+| `DOC-004` | README content must prefer short sections, plain language, and practical explanations over implementation detail. |
 
 ## Architecture Requirements
 
