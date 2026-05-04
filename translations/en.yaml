@@ -1,0 +1,40 @@
+# Requirements: HA-002
+configuration:
+  electricity_price_provider:
+    name: Electricity price provider
+    description: Provider ID used for electricity prices.
+  home_telemetry_provider:
+    name: Home telemetry provider
+    description: Provider ID used for household consumption and production.
+  charger_provider:
+    name: Charger provider
+    description: Provider ID used for charger integration.
+  tibber_access_token:
+    name: Tibber access token
+    description: Token used to access Tibber GraphQL API.
+  tibber_home_id:
+    name: Tibber home ID
+    description: Optional home ID when the Tibber account has multiple homes.
+  database_url:
+    name: PostgreSQL connection URL
+    description: PostgreSQL database URL used for price storage.
+  departure_time:
+    name: Departure time
+    description: Desired daily departure time.
+  minimum_soc_percent:
+    name: Minimum SOC
+    description: Minimum target state of charge.
+  maximum_soc_percent:
+    name: Maximum SOC
+    description: Maximum allowed state of charge.
+  battery_capacity_kwh:
+    name: Battery capacity
+    description: EV battery capacity in kWh.
+  charger_power_kw:
+    name: Charger power
+    description: Charger power in kW.
+  charging_efficiency:
+    name: Charging efficiency
+    description: Charging efficiency from 0 to 1.
+network:
+  3000/TCP: Web UI
