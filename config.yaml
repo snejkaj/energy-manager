@@ -1,8 +1,8 @@
-# Requirements: HA-001, HA-002, HA-006, HA-007
+# Requirements: HA-001, HA-002, HA-006, HA-007, ONB-001, ONB-002, ONB-003, ONB-004
 name: Smart EV Charging Optimizer
 version: 0.1.0
 slug: smart_ev_charging_optimizer
-description: Plans EV charging from Tibber electricity prices.
+description: Plans EV charging from electricity prices. Starts in planning-only mode until setup is complete.
 arch:
   - aarch64
   - amd64
@@ -22,10 +22,19 @@ ports_description:
 options:
   electricity_price_provider: "mock-electricity-price"
   home_telemetry_provider: "mock-home-telemetry"
-  charger_provider: "mock-charger"
-  tibber_access_token: null
+  charger_provider: "planning-only"
+  weather_forecast_provider: "open-meteo"
+  user_mode: "safe"
+  soc_buffer_percent: 15
+  start_early_minutes: 90
+  allow_undercharge_risk: false
+  weather_latitude: null
+  weather_longitude: null
+  solar_panel_tilt_degrees: null
+  solar_panel_azimuth_degrees: null
+  tibber_access_token: ""
   tibber_home_id: ""
-  database_url: "postgres://user:password@host:5432/energy_manager"
+  database_url: ""
   departure_time: "07:00"
   minimum_soc_percent: 60
   maximum_soc_percent: 80
@@ -35,7 +44,16 @@ options:
 schema:
   electricity_price_provider: str
   home_telemetry_provider: str
-  charger_provider: str
+  charger_provider: "list(planning-only|mock-charger)"
+  weather_forecast_provider: str
+  user_mode: "list(safe|balanced|savings)"
+  soc_buffer_percent: "float(0,100)"
+  start_early_minutes: "int(0,)"
+  allow_undercharge_risk: bool
+  weather_latitude: float?
+  weather_longitude: float?
+  solar_panel_tilt_degrees: float?
+  solar_panel_azimuth_degrees: float?
   tibber_access_token: password
   tibber_home_id: str?
   database_url: str

@@ -4,17 +4,20 @@ import type { ChargerProvider } from "./ChargerProvider.js";
 import type { ElectricityPriceProvider } from "./ElectricityPriceProvider.js";
 import type { HomeTelemetryProvider } from "./HomeTelemetryProvider.js";
 import type { ProviderKind } from "./providerTypes.js";
+import type { WeatherForecastProvider } from "./WeatherForecastProvider.js";
 
 export interface RegisteredProviders {
   electricityPriceProviders: ElectricityPriceProvider[];
   homeTelemetryProviders: HomeTelemetryProvider[];
   chargerProviders: ChargerProvider[];
+  weatherForecastProviders: WeatherForecastProvider[];
 }
 
 export class ProviderRegistry {
   private readonly electricityPriceProviders = new Map<string, ElectricityPriceProvider>();
   private readonly homeTelemetryProviders = new Map<string, HomeTelemetryProvider>();
   private readonly chargerProviders = new Map<string, ChargerProvider>();
+  private readonly weatherForecastProviders = new Map<string, WeatherForecastProvider>();
 
   registerElectricityPriceProvider(provider: ElectricityPriceProvider): void {
     this.assertKind(provider.metadata.kind, "electricity-price");
@@ -31,6 +34,11 @@ export class ProviderRegistry {
     this.chargerProviders.set(provider.metadata.id, provider);
   }
 
+  registerWeatherForecastProvider(provider: WeatherForecastProvider): void {
+    this.assertKind(provider.metadata.kind, "weather-forecast");
+    this.weatherForecastProviders.set(provider.metadata.id, provider);
+  }
+
   getElectricityPriceProvider(id: string): ElectricityPriceProvider | null {
     return this.electricityPriceProviders.get(id) ?? null;
   }
@@ -43,11 +51,16 @@ export class ProviderRegistry {
     return this.chargerProviders.get(id) ?? null;
   }
 
+  getWeatherForecastProvider(id: string): WeatherForecastProvider | null {
+    return this.weatherForecastProviders.get(id) ?? null;
+  }
+
   list(): RegisteredProviders {
     return {
       electricityPriceProviders: [...this.electricityPriceProviders.values()],
       homeTelemetryProviders: [...this.homeTelemetryProviders.values()],
       chargerProviders: [...this.chargerProviders.values()],
+      weatherForecastProviders: [...this.weatherForecastProviders.values()],
     };
   }
 

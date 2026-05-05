@@ -30,17 +30,114 @@ Areas:
 - `ARC`: architecture and code organization
 - `HA`: Home Assistant app packaging and runtime integration
 - `DOC`: documentation and README maintenance
+- `UX`: user experience simplicity and transparency
+- `SAF`: safety and charging assurance
+- `MOD`: user control modes
+- `EMG`: emergency charging override
+- `PRE`: prediction and forecast behavior
+- `FDB`: daily feedback and outcome analysis
+- `ONB`: onboarding and startup guidance
 
 ## Product Scope
 
 | ID | Requirement |
 | --- | --- |
 | `PRD-001` | The application must be a TypeScript/Node.js application for smart EV charging optimization. |
+| `PRD-000` | The primary product goal must be that the add-on just works without requiring users to understand electricity markets, charger APIs, or optimization details. |
 | `PRD-002` | The first version must plan and visualize EV charging only. |
 | `PRD-003` | The first version must not control a real charger. |
 | `PRD-004` | The application must optimize charging from electricity prices, a charging target, and optional home telemetry. |
 | `PRD-005` | The initial product must support one home and one EV charging target. |
 | `PRD-006` | The system must be usable locally by a developer without access to a real charger. |
+
+## Core Product Principles
+
+| ID | Requirement |
+| --- | --- |
+| `UX-001` | The primary user experience principle must be "It just works". |
+| `UX-002` | The system must minimize required user decisions during normal operation. |
+| `UX-003` | The UI must explain plans and system state in simple, non-technical language. |
+| `SAF-001` | The default operating mode must be safe and must never intentionally risk undercharging below the configured minimum target. |
+| `SAF-002` | Safety must take precedence over cost optimization in the default mode. |
+| `MOD-001` | Users must be able to explicitly choose less safe operating modes. |
+| `MOD-002` | Less safe modes must be opt-in and must clearly explain the tradeoff before activation. |
+| `MOD-003` | The system must support exactly three user modes: `safe`, `balanced`, and `savings`. |
+| `MOD-004` | `safe` mode must be the default mode. |
+| `MOD-005` | User mode must influence SOC target, buffer size, and readiness/start deadline. |
+| `MOD-006` | `safe` mode must use a large SOC buffer and plan readiness early. |
+| `MOD-007` | `balanced` mode must optimize price within a safety margin. |
+| `MOD-008` | `savings` mode must minimize cost and may allow undercharge risk when explicitly selected. |
+| `UX-004` | Charging plans must always show when charging happens. |
+| `UX-005` | Charging plans must always show why charging happens. |
+| `UX-006` | The UI must adapt to screen size, with mobile-first layout as the priority. |
+| `UX-007` | Mobile views must preserve access to current price, planned charging, reason for charging, and override controls. |
+
+## Decision Transparency Requirements
+
+| ID | Requirement |
+| --- | --- |
+| `UX-101` | Every automated charging decision must be explainable in simple language. |
+| `UX-102` | The system must show the main reason for a planned charging slot, such as low price, safety margin, departure time, solar forecast, or emergency override. |
+| `UX-103` | The system must show enough detail for a user to understand why a more expensive slot was selected when safety or completion requirements require it. |
+| `UX-104` | The API response used by the UI must include machine-readable reason data for planned charging decisions. |
+| `UX-105` | The UI must avoid exposing raw optimizer internals unless the user explicitly opens advanced details. |
+
+## Daily Feedback Requirements
+
+| ID | Requirement |
+| --- | --- |
+| `FDB-001` | Daily feedback must show whether the car was ready using a clear yes/no result. |
+| `FDB-002` | Daily feedback must show estimated money saved from the executed charging outcome. |
+| `FDB-003` | Daily feedback must show failures and the reason for each failure in simple language. |
+| `FDB-004` | The codebase must implement `analyzeOutcomes()` for daily outcome analysis. |
+| `FDB-005` | Daily feedback must detect late charging. |
+| `FDB-006` | Daily feedback must detect wrong prediction when actual SOC differs materially from predicted SOC. |
+| `FDB-007` | Daily feedback must generate user suggestions including `increase_buffer` and `start_earlier` when applicable. |
+
+## Emergency Charging Requirements
+
+| ID | Requirement |
+| --- | --- |
+| `EMG-001` | The system must always provide an emergency override labeled "Charge to 100%". |
+| `EMG-002` | The emergency override must prioritize reaching 100% state of charge over price optimization. |
+| `EMG-003` | The emergency override must still respect physical charger and battery limits. |
+| `EMG-004` | After emergency override activation, the system must show an estimated completion time. |
+| `EMG-005` | The UI must make the emergency override available on mobile and desktop views. |
+| `EMG-006` | Emergency override state must be visible while active. |
+| `EMG-007` | Emergency charging must set target SOC to `100%`. |
+| `EMG-008` | Emergency charging must override price optimization and calculate the fastest safe plan. |
+| `EMG-009` | Emergency charging output must include start time, estimated completion time, and cost impact versus the optimal price plan. |
+| `EMG-010` | If emergency charging cannot reach 100% before departure, the system must show a warning and suggest immediate start. |
+| `EMG-011` | Emergency charging decisions must be stored with reasons `user_requested_100_percent` and `safety_override`. |
+
+## Prediction Requirements
+
+| ID | Requirement |
+| --- | --- |
+| `PRE-001` | The system should support travel prediction as an input to future charging targets. |
+| `PRE-002` | Travel prediction must never reduce the safe default target unless the user explicitly enables a less safe mode. |
+| `PRE-003` | The system should support solar production prediction when a provider can supply forecast data. |
+| `PRE-004` | Solar prediction may be used to reduce cost, but must not risk missing the configured minimum target in safe mode. |
+| `PRE-005` | Prediction-based decisions must be explained in simple language. |
+| `PRE-006` | Prediction inputs must be optional and must not block normal charging planning when unavailable. |
+| `PRE-007` | The system must support Open-Meteo or an equivalent weather provider for hourly weather forecast input. |
+| `PRE-008` | Solar prediction must use weather forecast input and historical solar production input. |
+| `PRE-009` | Solar prediction output must provide predicted solar energy in kWh per hour. |
+| `PRE-010` | Solar predictions must be stored in `solar_predictions`. |
+| `PRE-011` | Solar prediction must be usable by the decision engine but optional; missing solar predictions must not block charging decisions. |
+| `PRE-012` | Calendar events marked with the emoji `🚗` must be treated as explicit travel events that need the car. |
+| `PRE-013` | Calendar events containing the keywords `car` or `drive` must be treated as explicit travel events that need the car. |
+| `PRE-014` | Users must be able to manually mark an event with a `Needs car` toggle. |
+| `PRE-015` | Travel events and predictions may include an optional trip size: `short`, `medium`, or `long`. |
+| `PRE-016` | Explicit travel input must override AI-inferred travel predictions for overlapping time windows. |
+| `PRE-017` | AI-inferred travel predictions must include a confidence score from `0` to `1`. |
+| `PRE-018` | The prediction module must output likely departure time, required state of charge, and confidence. |
+| `PRE-019` | The initial prediction module must use heuristics based on recurring departure times. |
+| `PRE-020` | The prediction module must consider calendar events when predicting likely departure time. |
+| `PRE-021` | The prediction module must consider weekday and time-of-day patterns. |
+| `PRE-022` | The prediction module must consider weather when estimating required state of charge. |
+| `PRE-023` | The prediction module must use historical driving distance or energy averages when estimating required state of charge. |
+| `PRE-024` | Prediction results must be stored with model name, model version, feature snapshot, reasons, and confidence to support future ML upgrades. |
 
 ## Configuration Requirements
 
@@ -55,6 +152,15 @@ Areas:
 | `CFG-007` | Secrets must not be committed to the repository. |
 | `CFG-008` | The repository must provide an example environment file without real secrets. |
 
+## Onboarding Requirements
+
+| ID | Requirement |
+| --- | --- |
+| `ONB-001` | On startup, missing Tibber token must produce a setup message that explains how to enable real electricity prices. |
+| `ONB-002` | On startup, missing database configuration must produce a clear blocking error. |
+| `ONB-003` | On startup, missing charger configuration must show "planning only mode" and must not imply hardware control. |
+| `ONB-004` | Setup documentation and startup messages must help a new user understand the required setup in under two minutes. |
+
 ## Tibber Price Requirements
 
 | ID | Requirement |
@@ -67,6 +173,9 @@ Areas:
 | `TIB-006` | The Tibber client must keep GraphQL transport concerns separate from price mapping logic. |
 | `TIB-007` | Tibber API errors must be surfaced as actionable application errors. |
 | `TIB-008` | The application must tolerate missing optional Tibber fields when they are not needed for optimization. |
+| `TIB-009` | Tibber price imports must be stored idempotently in `price_intervals`. |
+| `TIB-010` | Tibber home power readings must be stored in `home_power_readings` when live telemetry is available. |
+| `TIB-011` | Tibber telemetry import must fail gracefully when live consumption or production is unavailable. |
 
 ## Provider Extension Requirements
 
@@ -81,6 +190,7 @@ Areas:
 | `PRV-007` | Adding a new electricity supplier must not require changes to `ChargingOptimizer`. |
 | `PRV-008` | Adding a new charger vendor must not require changes to `ChargingOptimizer`. |
 | `PRV-009` | Provider documentation must describe how to add a new provider implementation. |
+| `PRV-010` | Weather forecast integrations must implement a common `WeatherForecastProvider` interface. |
 
 ## Persistence Requirements
 
@@ -94,6 +204,20 @@ Areas:
 | `DB-006` | Database schema changes must be tracked through migrations. |
 | `DB-007` | Persistence code must expose repository methods rather than leaking raw database access into domain or UI code. |
 | `DB-008` | Price reads used by planning must be ordered and filtered by time range. |
+| `DB-009` | The database must store weather forecasts in `weather_forecasts`. |
+| `DB-010` | The database must store solar production predictions in `solar_predictions`. |
+| `DB-011` | The database must store calendar and user-tagged travel events in `travel_events`. |
+| `DB-012` | The database must store AI-inferred travel predictions in `travel_predictions`. |
+| `DB-013` | The database must store charging plans in `charging_plans`, including `estimated_completion_time`. |
+| `DB-014` | The database must store decision logs in `decision_logs`, and each decision log must include a non-empty `reason[]`. |
+| `DB-015` | The database must store decision outcomes in `decision_outcomes`, including success or failure and cause. |
+| `DB-016` | The database must store available user modes in `user_modes`, including `safe`, `balanced`, and `savings`. |
+| `DB-017` | The database must store estimated and actual completion times so prediction accuracy can be evaluated. |
+| `DB-018` | Persistence must support future ML training by storing feature snapshots, model metadata, reasons, and outcome labels where applicable. |
+| `DB-019` | All persisted timestamps must represent UTC instants and must be written and read at system boundaries as ISO timestamps. |
+| `DB-020` | The database must store provider-normalized electricity price intervals in `price_intervals` with idempotent uniqueness by provider, home, start time, and end time. |
+| `DB-021` | The database must store provider-normalized home power readings in `home_power_readings`. |
+| `DB-022` | The database must store selected user mode and mode policy settings in `user_preferences`. |
 
 ## Home Telemetry Requirements
 
@@ -122,6 +246,11 @@ Areas:
 | `CHG-010` | Power values must be represented internally as kW. |
 | `CHG-011` | The target state of charge used for planning must not exceed the configured maximum state of charge. |
 | `CHG-012` | Invalid charging targets must be rejected with clear validation errors. |
+| `CHG-013` | The system must estimate completion time from remaining energy and effective charging power. |
+| `CHG-014` | Effective charging power must be the lower of charger power and available power. |
+| `CHG-015` | Completion estimates must adjust for home load when telemetry is available. |
+| `CHG-016` | Completion estimates must adjust for power limits when configured or detected. |
+| `CHG-017` | The UI and API must present completion time as approximate and must not present it as an exact time. |
 
 ## Charger Controller Requirements
 
@@ -132,6 +261,8 @@ Areas:
 | `CHG-103` | The codebase must include a mock `ChargerController` implementation. |
 | `CHG-104` | The mock charger implementation must be usable in tests and local development. |
 | `CHG-105` | No production charger integration may be implemented in the initial version. |
+| `CHG-106` | `ChargerController` must expose `startCharging`, `stopCharging`, and `setCurrent` methods. |
+| `CHG-107` | `setCurrent` must set a requested charging current limit without requiring a real charger integration. |
 
 ## Optimization Requirements
 
@@ -166,6 +297,14 @@ Areas:
 | `WEB-008` | The server must expose an API endpoint that returns current planning data for the UI. |
 | `WEB-009` | Web route handlers must delegate business behavior to application services or domain modules. |
 | `WEB-010` | UI code must not contain charger optimization business rules. |
+| `WEB-011` | The main screen must show `Car ready at [time]`. |
+| `WEB-012` | The main screen must show charging window, estimated completion time, cost estimate, and next trip. |
+| `WEB-013` | The main screen must show a reason list with no more than four visible items by default. |
+| `WEB-014` | The primary action must be `Charge to 100%`. |
+| `WEB-015` | Secondary actions must include change departure, charge now, and change mode. |
+| `WEB-016` | The default UI must not be a dashboard. |
+| `WEB-017` | The UI must avoid technical language by default. |
+| `WEB-018` | The UI layout must be mobile-first. |
 
 ## Testing Requirements
 

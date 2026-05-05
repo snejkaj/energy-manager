@@ -9,6 +9,33 @@ configuration:
   charger_provider:
     name: Charger provider
     description: Provider ID used for charger integration.
+  weather_forecast_provider:
+    name: Weather forecast provider
+    description: Provider ID used for weather forecasts.
+  user_mode:
+    name: User mode
+    description: Charging behavior mode. Safe is the default.
+  soc_buffer_percent:
+    name: SOC buffer
+    description: Extra state of charge buffer added by the selected mode.
+  start_early_minutes:
+    name: Start early
+    description: Minutes before departure that planning should target readiness.
+  allow_undercharge_risk:
+    name: Allow undercharge risk
+    description: Whether selected mode may accept risk of not reaching the target.
+  weather_latitude:
+    name: Weather latitude
+    description: Latitude used for weather and solar prediction.
+  weather_longitude:
+    name: Weather longitude
+    description: Longitude used for weather and solar prediction.
+  solar_panel_tilt_degrees:
+    name: Solar panel tilt
+    description: Optional panel tilt in degrees for solar radiation forecasts.
+  solar_panel_azimuth_degrees:
+    name: Solar panel azimuth
+    description: Optional panel azimuth in degrees for solar radiation forecasts.
   tibber_access_token:
     name: Tibber access token
     description: Token used to access Tibber GraphQL API.

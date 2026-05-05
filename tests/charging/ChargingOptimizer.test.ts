@@ -118,6 +118,31 @@ describe("calculateChargingPlan", () => {
     expect(plan.currency).toBeNull();
   });
 
+  it("uses only the available part of a price interval when time is low", () => {
+    // Requirements: OPT-003, OPT-005, OPT-010, TST-006
+    const plan = calculateChargingPlan(
+      [
+        {
+          startsAt: "2026-05-05T07:30:00.000Z",
+          endsAt: "2026-05-05T08:30:00.000Z",
+          total: 1,
+          currency: "SEK",
+        },
+      ],
+      {
+        ...baseTarget,
+        currentSocPercent: 20,
+        minSocPercent: 60,
+      },
+    );
+
+    expect(plan.feasible).toBe(false);
+    expect(plan.slots).toHaveLength(1);
+    expect(plan.slots[0]?.endsAt).toBe("2026-05-05T08:00:00.000Z");
+    expect(plan.plannedEnergyKwh).toBe(5);
+    expect(plan.deficitKwh).toBe(15);
+  });
+
   it("ignores price intervals after departure", () => {
     // Requirements: OPT-003, TST-008
     const plan = calculateChargingPlan(

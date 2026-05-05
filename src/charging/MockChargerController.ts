@@ -5,7 +5,7 @@ import type { ChargerController, ChargerStatus } from "./ChargerController.js";
 export class MockChargerController implements ChargerController {
   private status: ChargerStatus;
 
-  constructor(initialStatus: ChargerStatus = { connected: true, charging: false, powerKw: 0 }) {
+  constructor(initialStatus: ChargerStatus = { connected: true, charging: false, powerKw: 0, currentAmpere: 0 }) {
     this.status = { ...initialStatus };
   }
 
@@ -25,6 +25,17 @@ export class MockChargerController implements ChargerController {
       ...this.status,
       charging: false,
       powerKw: 0,
+    };
+  }
+
+  async setCurrent(currentAmpere: number): Promise<void> {
+    if (!Number.isFinite(currentAmpere) || currentAmpere < 0) {
+      throw new Error("Charging current must be a non-negative number.");
+    }
+
+    this.status = {
+      ...this.status,
+      currentAmpere,
     };
   }
 }

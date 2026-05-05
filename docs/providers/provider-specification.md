@@ -14,6 +14,7 @@ The initial provider types are:
 | --- | --- | --- |
 | Electricity price | `ElectricityPriceProvider` | Fetches price intervals from Tibber, Nord Pool, local files, Home Assistant sensors, or another price source. |
 | Home telemetry | `HomeTelemetryProvider` | Fetches current consumption and production from Tibber, Home Assistant entities, MQTT, or another meter source. |
+| Weather forecast | `WeatherForecastProvider` | Fetches hourly weather and solar radiation forecasts from Open-Meteo or another weather source. |
 | Charger | `ChargerProvider` | Creates a `ChargerController` for Zaptec, Easee, Wallbox, mock chargers, or other charger systems. |
 
 ## Contract Rules
@@ -25,6 +26,7 @@ The initial provider types are:
 - Provider IDs must be stable and unique.
 - Provider implementations must be registered through `ProviderRegistry`.
 - Adding a provider should not require changes to `ChargingOptimizer`.
+- Weather and solar prediction providers must remain optional inputs to charging decisions.
 
 ## Electricity Price Provider
 
@@ -81,6 +83,20 @@ Required behavior:
 - use kW for consumption and production
 - return `null` when telemetry is unavailable instead of blocking planning
 
+## Weather Forecast Provider
+
+Implement `src/providers/WeatherForecastProvider.ts`.
+
+Required behavior:
+
+- return hourly `WeatherForecastInterval[]`
+- use ISO timestamps
+- use UTC at boundaries
+- include cloud cover and solar radiation values when available
+- return an empty array when no forecast data is available
+
+The first implementation is `OpenMeteoWeatherProvider`.
+
 ## Charger Provider
 
 Implement `src/providers/ChargerProvider.ts`.
@@ -99,10 +115,12 @@ The initial version must keep production charger control disabled until real con
 src/providers/
   ElectricityPriceProvider.ts
   HomeTelemetryProvider.ts
+  WeatherForecastProvider.ts
   ChargerProvider.ts
   ProviderRegistry.ts
   providerTypes.ts
   mock/
+  openMeteo/
   tibber/
   zaptec/
   homeAssistant/

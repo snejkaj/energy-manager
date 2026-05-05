@@ -4,6 +4,16 @@ A Home Assistant add-on for planning EV charging when electricity prices are low
 
 The add-on fetches electricity prices, calculates the cheapest charging plan before your departure time, and shows the result in a simple web UI inside Home Assistant.
 
+## Product Principles
+
+- It should just work.
+- The default mode should be safe and avoid undercharging.
+- Cheaper but less safe modes must be explicit choices.
+- Every charging decision should be easy to understand.
+- The UI should always show when charging happens and why.
+- Emergency charging must always be available with "Charge to 100%".
+- Mobile screens are a priority, not an afterthought.
+
 ## Current Status
 
 This project is in early development.
@@ -13,14 +23,24 @@ Implemented so far:
 - Home Assistant add-on skeleton
 - TypeScript/Node.js project setup
 - charging optimizer
-- mock charger support
+- mock charger support with start, stop, and current-limit methods
 - provider interfaces for different electricity suppliers and charger vendors
-- tests for charging plan calculation
+- PostgreSQL schema for prices, forecasts, travel data, charging plans, decision logs, and outcomes
+- Tibber provider for price data and optional home power readings
+- Open-Meteo weather provider
+- optional solar prediction from weather and historical production
+- travel event system for calendar tags, manual "Needs car", and AI-inferred trips
+- heuristic departure prediction with required SOC and confidence
+- three user modes: Safe, Balanced, and Savings
+- emergency "Charge to 100%" planning with completion time and cost impact
+- approximate completion estimates with min/max range
+- mobile-first main screen focused on readiness, next trip, charging window, cost, and reasons
+- daily feedback showing whether the car was ready, money saved, failures, and simple suggestions
+- startup onboarding for Tibber, database, and planning-only charger setup
+- tests for charging decisions, completion time, emergency charging, and user modes
 
 Not implemented yet:
 
-- real Tibber API connection
-- PostgreSQL storage
 - real charger control
 - Zaptec integration
 
@@ -30,6 +50,7 @@ The add-on will help answer:
 
 - What is the current electricity price?
 - When should the car charge before departure?
+- Why is the car charging at that time?
 - How much will the planned charging cost?
 - Can the target state of charge be reached in time?
 
@@ -59,13 +80,58 @@ This should make it possible to add other electricity suppliers, Home Assistant 
 
 Provider documentation: [docs/providers/provider-specification.md](docs/providers/provider-specification.md)
 
+## Data and Decisions
+
+The database is designed to keep charging decisions explainable.
+
+It stores:
+
+- imported price intervals
+- home power readings when telemetry is available
+- planned charging and estimated completion time
+- actual completion time and outcome
+- decision reasons in plain arrays
+- weather, solar, and travel prediction inputs
+- predicted solar energy per hour
+- explicit and AI-inferred travel events
+- likely departure time, required SOC, and prediction confidence
+- emergency charging decisions and reasons
+- estimated and actual completion times for comparison
+- daily outcome feedback and suggestions such as starting earlier or increasing the buffer
+- snapshots needed for future ML training
+
+All persisted timestamps are UTC instants.
+
+## Setup In Under 2 Minutes
+
+Required:
+
+1. Set `DATABASE_URL` to a PostgreSQL connection string.
+2. Start the add-on.
+3. Open the web UI and check the setup notes.
+
+Optional:
+
+- Add `TIBBER_ACCESS_TOKEN` to fetch real electricity prices.
+- Keep `CHARGER_PROVIDER=planning-only` until real charger control is added.
+- Use `mock-charger` only for local development and tests.
+
+Startup messages are intentionally plain:
+
+- missing Tibber token: the app explains how to connect Tibber and continues with mock prices
+- missing database URL: the app stops with a clear database setup error
+- no charger provider: the app shows planning-only mode and does not control hardware
+
 ## Configuration
 
 Initial Home Assistant options include:
 
 - electricity price provider
 - home telemetry provider
-- charger provider
+- charger provider, defaulting to planning-only mode
+- weather forecast provider
+- weather latitude and longitude
+- optional solar panel tilt and azimuth
 - Tibber access token
 - Tibber home ID
 - PostgreSQL database URL
@@ -76,7 +142,17 @@ Initial Home Assistant options include:
 - charger power
 - charging efficiency
 
-The current default providers are mock providers for local development.
+The current electricity and telemetry defaults are mock providers for local development. Charger control defaults to planning-only mode.
+
+## User Modes
+
+The default mode is Safe.
+
+- Safe: prioritizes readiness, adds a larger SOC buffer, and plans to be ready early.
+- Balanced: keeps a safety margin while still optimizing for price.
+- Savings: minimizes cost and may accept undercharge risk when explicitly selected.
+
+The selected mode and policy settings are stored in `user_preferences`.
 
 ## Development
 
@@ -86,11 +162,10 @@ Expected commands once Node.js is installed:
 
 ```sh
 npm install
+cp .env.example .env
 npm test
 npm run build
 ```
-
-The current execution environment used during setup did not have `node` or `npm` installed, so tests have not been run here yet.
 
 ## Requirements
 
