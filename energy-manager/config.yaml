@@ -53,15 +53,15 @@ options:
   charger_power_kw: 11
   charging_efficiency: 0.9
 schema:
-  electricity_price_provider: str
-  home_telemetry_provider: str
-  charger_provider: "list(planning-only|mock-charger)"
-  vehicle_state_provider: "list(tesla)"
-  weather_forecast_provider: str
-  user_mode: "list(safe|balanced|savings)"
-  soc_buffer_percent: "float(0,100)"
-  start_early_minutes: "int(0,)"
-  allow_undercharge_risk: bool
+  electricity_price_provider: str?
+  home_telemetry_provider: str?
+  charger_provider: str?
+  vehicle_state_provider: str?
+  weather_forecast_provider: str?
+  user_mode: str?
+  soc_buffer_percent: float?
+  start_early_minutes: int?
+  allow_undercharge_risk: bool?
   weather_latitude: float?
   weather_longitude: float?
   solar_panel_tilt_degrees: float?
@@ -77,10 +77,10 @@ schema:
   tesla_oauth_client_secret: password?
   tesla_oauth_redirect_uri: str?
   token_encryption_key: password?
-  database_url: str
-  departure_time: "match(^([01][0-9]|2[0-3]):[0-5][0-9]$)"
-  minimum_soc_percent: "int(0,100)"
-  maximum_soc_percent: "int(0,100)"
-  battery_capacity_kwh: "float(1,)"
-  charger_power_kw: "float(0,)"
-  charging_efficiency: "float(0,1)"
+  database_url: str?
+  departure_time: str?
+  minimum_soc_percent: int?
+  maximum_soc_percent: int?
+  battery_capacity_kwh: float?
+  charger_power_kw: float?
+  charging_efficiency: float?

@@ -147,7 +147,7 @@ function trimEnv(value: string | undefined): string | undefined {
 }
 
 function parseOptionalNumber(value: string | undefined): number | null {
-  if (value === undefined || value.trim() === "") {
+  if (value === undefined || value.trim() === "" || value.trim() === "null") {
     return null;
   }
 

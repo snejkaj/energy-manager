@@ -70,7 +70,7 @@ export function startServer(): void {
   const config = loadConfig();
   const onboarding = createStartupOnboarding(config);
   logStartupDiagnostics(config);
-  logTibberConfigDiagnostics(config);
+  logIntegrationSetupStatus(config);
   logStartupOnboarding([...onboarding.setupWarnings, ...onboarding.setupMessages]);
   assertStartupIsReady(onboarding);
 
@@ -777,16 +777,16 @@ function logStartupDiagnostics(config: AppConfig): void {
   }
 }
 
-function logTibberConfigDiagnostics(config: AppConfig): void {
-  logger.info(
-    "TibberConfig",
-    `Backend sees TIBBER_ACCESS_TOKEN configured: ${config.tibberAccessToken !== null ? "yes" : "no"}`,
-  );
-  logger.info("TibberConfig", "Final env variable used: TIBBER_ACCESS_TOKEN");
-  logger.info(
-    "TibberConfig",
-    `Backend sees TIBBER_HOME_ID configured: ${config.tibberHomeId !== null ? "yes" : "no"}`,
-  );
+function logIntegrationSetupStatus(config: AppConfig): void {
+  const weatherConfigured = config.weatherLatitude !== null && config.weatherLongitude !== null;
+  const solarConfigured = config.solarPanelTiltDegrees !== null && config.solarPanelAzimuthDegrees !== null;
+  const chargerStatus = config.chargerProvider === "mock-charger" ? "mock-charger" : "planning-only";
+
+  logger.info("Setup", `Tibber: ${config.tibberAccessToken !== null ? "configured" : "missing"}`);
+  logger.info("Setup", `Tesla: ${config.teslaAccessToken !== null ? "configured" : "missing"}`);
+  logger.info("Setup", `Weather: ${weatherConfigured ? "configured" : "missing"}`);
+  logger.info("Setup", `Solar: ${solarConfigured ? "configured" : "missing"}`);
+  logger.info("Setup", `Charger: ${chargerStatus}`);
 }
 
 function createConfigDiagnostics(config: AppConfig) {

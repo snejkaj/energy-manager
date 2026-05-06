@@ -114,6 +114,17 @@ Required:
 2. Open the web UI.
 3. Confirm the banner says `Demo mode - no data is saved`.
 
+All configuration is optional. Missing Tibber, Tesla, weather, solar, database, or charger settings produce setup guidance in the UI instead of blocking startup.
+
+Minimal working config:
+
+```yaml
+tibber_access_token: ""
+tibber_home_id: ""
+database_url: ""
+charger_provider: "planning-only"
+```
+
 Optional:
 
 - Set `DATABASE_URL` to a PostgreSQL connection string to save data.
@@ -155,6 +166,42 @@ Initial Home Assistant options include:
 - battery capacity
 - charger power
 - charging efficiency
+
+Full example config:
+
+```yaml
+electricity_price_provider: "mock-electricity-price"
+home_telemetry_provider: "mock-home-telemetry"
+charger_provider: "planning-only"
+vehicle_state_provider: "tesla"
+weather_forecast_provider: "open-meteo"
+user_mode: "safe"
+soc_buffer_percent: 15
+start_early_minutes: 90
+allow_undercharge_risk: false
+weather_latitude: null
+weather_longitude: null
+solar_panel_tilt_degrees: null
+solar_panel_azimuth_degrees: null
+tibber_access_token: ""
+tibber_home_id: ""
+tesla_access_token: ""
+tesla_vehicle_id: ""
+tibber_oauth_client_id: ""
+tibber_oauth_client_secret: ""
+tibber_oauth_redirect_uri: ""
+tesla_oauth_client_id: ""
+tesla_oauth_client_secret: ""
+tesla_oauth_redirect_uri: ""
+token_encryption_key: ""
+database_url: ""
+departure_time: "07:00"
+minimum_soc_percent: 60
+maximum_soc_percent: 80
+battery_capacity_kwh: 75
+charger_power_kw: 11
+charging_efficiency: 0.9
+```
 
 When `TIBBER_ACCESS_TOKEN` is set, the app uses Tibber as the default electricity price provider and fetches today/tomorrow prices with a personal access token. Without the token, electricity and telemetry default to mock providers for local development. Charger control defaults to planning-only mode.
 

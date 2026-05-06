@@ -42,6 +42,18 @@ export function createStartupOnboarding(config: AppConfig): StartupOnboarding {
     );
   }
 
+  if (config.weatherLatitude === null || config.weatherLongitude === null) {
+    setupMessages.push(
+      "Weather location is not configured. Demo weather is used for setup.",
+    );
+  }
+
+  if (config.solarPanelTiltDegrees === null || config.solarPanelAzimuthDegrees === null) {
+    setupMessages.push(
+      "Solar panel details are not configured. Demo solar prediction is used for setup.",
+    );
+  }
+
   if (planningOnlyMode) {
     setupMessages.push(
       "Planning only mode is active. No charger hardware will be controlled until a charger provider is configured.",
