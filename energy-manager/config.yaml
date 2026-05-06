@@ -1,7 +1,7 @@
 # Requirements: HA-001, HA-002, HA-006, HA-007, ONB-001, ONB-002, ONB-003, ONB-004
-name: Smart EV Charging Optimizer
+name: Energy Manager
 version: 0.1.0
-slug: smart_ev_charging_optimizer
+slug: energy-manager
 description: Plans EV charging from electricity prices. Starts in planning-only mode until setup is complete.
 arch:
   - aarch64
@@ -19,6 +19,7 @@ ports:
   3000/tcp: null
 ports_description:
   3000/tcp: Web UI
+webui: "http://[HOST]:[PORT:3000]"
 options:
   electricity_price_provider: "mock-electricity-price"
   home_telemetry_provider: "mock-home-telemetry"
@@ -65,8 +66,8 @@ schema:
   weather_longitude: float?
   solar_panel_tilt_degrees: float?
   solar_panel_azimuth_degrees: float?
-  tibber_access_token: wBJTjsXiqja4D79TyBbStMrt-u4HnF87lJfGq9VO4yE
-  tibber_home_id: str
+  tibber_access_token: "str?"
+  tibber_home_id: "str?"
   tesla_access_token: password?
   tesla_vehicle_id: str?
   tibber_oauth_client_id: str?

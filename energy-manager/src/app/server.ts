@@ -780,12 +780,12 @@ function logStartupDiagnostics(config: AppConfig): void {
 function logTibberConfigDiagnostics(config: AppConfig): void {
   logger.info(
     "TibberConfig",
-    `Backend sees TIBBER_ACCESS_TOKEN exists=${config.tibberAccessToken !== null} length=${config.tibberAccessToken?.length ?? 0}`,
+    `Backend sees TIBBER_ACCESS_TOKEN configured: ${config.tibberAccessToken !== null ? "yes" : "no"}`,
   );
   logger.info("TibberConfig", "Final env variable used: TIBBER_ACCESS_TOKEN");
   logger.info(
     "TibberConfig",
-    `Backend sees TIBBER_HOME_ID exists=${config.tibberHomeId !== null} length=${config.tibberHomeId?.length ?? 0}`,
+    `Backend sees TIBBER_HOME_ID configured: ${config.tibberHomeId !== null ? "yes" : "no"}`,
   );
 }
 

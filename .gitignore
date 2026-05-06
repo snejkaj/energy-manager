@@ -1,4 +1,7 @@
 node_modules/
 dist/
 .env
+options.json
+data/
+*.local
 npm-debug.log*
