@@ -162,6 +162,13 @@ try {
       data.pricingContext.currentPrice !== null
         ? data.pricingContext.currentPrice + " " + data.pricingContext.currency + "/kWh"
         : "Not connected";
+    document.getElementById("tibber-status").textContent = data.tibber.status;
+    document.getElementById("tibber-summary").textContent = data.tibber.connected
+      ? data.pricingContext.description
+      : "For now, add TIBBER_ACCESS_TOKEN in configuration.";
+    document.getElementById("tibber-last-fetch").textContent =
+      "Last successful fetch: " +
+      (data.tibber.lastSuccessfulFetch ? formatTime(data.tibber.lastSuccessfulFetch) : "never");
     document.getElementById("priority").textContent = strategyName(data.userMode.mode);
     document.getElementById("setup-mode").textContent = data.status.chargerStatus;
     document.getElementById("demo-mode").style.display = data.onboarding.demoMode ? "block" : "none";
@@ -256,12 +263,27 @@ try {
 
   function renderConnection(connection, provider) {
     if (!connection) return;
+    if (provider === "tibber") {
+      document.getElementById("tibber-status").textContent = connection.connected
+        ? "Tibber connected"
+        : "Tibber token not configured";
+      document.getElementById("tibber-summary").textContent = connection.connected
+        ? connection.summary || "Using real Tibber price data."
+        : "For now, add TIBBER_ACCESS_TOKEN in configuration.";
+      return;
+    }
+
     document.getElementById(provider + "-status").textContent = connection.connected ? "Connected" : "Not connected";
     document.getElementById(provider + "-summary").textContent =
       connection.summary || connection.warning || "Not connected";
   }
 
   function startProviderAuth(provider) {
+    if (provider === "tibber") {
+      showToast("For now, add TIBBER_ACCESS_TOKEN in configuration");
+      return Promise.resolve();
+    }
+
     showToast("Opening " + providerName(provider) + " connection...");
     return fetchJson("/api/auth/" + provider + "/start", { method: "POST" })
       .then((response) => response.json())

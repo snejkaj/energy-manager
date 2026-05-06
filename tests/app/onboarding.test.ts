@@ -18,7 +18,7 @@ describe("startup onboarding", () => {
     }));
 
     expect(onboarding.setupMessages).toContain(
-      "Tibber is not connected yet. Add TIBBER_ACCESS_TOKEN to fetch real electricity prices; mock prices are used for setup.",
+      "Tibber token not configured. Add TIBBER_ACCESS_TOKEN to fetch real electricity prices; demo prices are used for setup.",
     );
     expect(onboarding.blockingErrors).toEqual([]);
   });

@@ -4,7 +4,7 @@ export interface GraphQLTransport {
   execute<TData>(query: string, variables?: Record<string, unknown>): Promise<TData>;
 }
 
-export class TibberClient implements GraphQLTransport {
+export class TibberGraphQLClient implements GraphQLTransport {
   constructor(
     private readonly accessToken: string,
     private readonly endpoint = "https://api.tibber.com/v1-beta/gql",
@@ -36,6 +36,8 @@ export class TibberClient implements GraphQLTransport {
     return payload.data;
   }
 }
+
+export class TibberClient extends TibberGraphQLClient {}
 
 export class TibberApiError extends Error {
   constructor(message: string) {

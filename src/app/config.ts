@@ -50,8 +50,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     teslaOAuthClientSecret: emptyToNull(env.TESLA_OAUTH_CLIENT_SECRET),
     teslaOAuthRedirectUri: emptyToNull(env.TESLA_OAUTH_REDIRECT_URI),
     tokenEncryptionKey: emptyToNull(env.TOKEN_ENCRYPTION_KEY),
-    electricityPriceProvider: emptyToNull(env.ELECTRICITY_PRICE_PROVIDER) ?? "mock-electricity-price",
-    homeTelemetryProvider: emptyToNull(env.HOME_TELEMETRY_PROVIDER) ?? "mock-home-telemetry",
+    electricityPriceProvider: emptyToNull(env.ELECTRICITY_PRICE_PROVIDER) ?? defaultElectricityPriceProvider(env),
+    homeTelemetryProvider: emptyToNull(env.HOME_TELEMETRY_PROVIDER) ?? defaultHomeTelemetryProvider(env),
     chargerProvider: emptyToNull(env.CHARGER_PROVIDER) ?? "planning-only",
     vehicleStateProvider: emptyToNull(env.VEHICLE_STATE_PROVIDER) ?? "tesla",
     weatherForecastProvider: emptyToNull(env.WEATHER_FORECAST_PROVIDER) ?? "open-meteo",
@@ -82,6 +82,14 @@ function parseUserMode(value: string | undefined): AppConfig["userMode"] {
   }
 
   throw new Error("USER_MODE must be safe, balanced, or savings.");
+}
+
+function defaultElectricityPriceProvider(env: NodeJS.ProcessEnv): string {
+  return emptyToNull(env.TIBBER_ACCESS_TOKEN) === null ? "mock-electricity-price" : "tibber";
+}
+
+function defaultHomeTelemetryProvider(env: NodeJS.ProcessEnv): string {
+  return emptyToNull(env.TIBBER_ACCESS_TOKEN) === null ? "mock-home-telemetry" : "tibber-live-measurement";
 }
 
 function parseNumberWithDefault(value: string | undefined, defaultValue: number): number {
@@ -153,5 +161,11 @@ function parseDepartureTime(value: string | undefined): string {
     throw new Error("DEPARTURE_TIME must use HH:mm format.");
   }
 
-  return `2026-05-05T${time}:00.000Z`;
+  const [hours, minutes] = time.split(":").map(Number);
+  const departure = new Date();
+  departure.setUTCHours(hours ?? 8, minutes ?? 0, 0, 0);
+  if (departure.getTime() <= Date.now()) {
+    departure.setUTCDate(departure.getUTCDate() + 1);
+  }
+  return departure.toISOString();
 }

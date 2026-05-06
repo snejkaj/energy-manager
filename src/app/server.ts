@@ -18,7 +18,7 @@ import { ProviderRegistry } from "../providers/ProviderRegistry.js";
 import { OpenMeteoWeatherProvider } from "../providers/openMeteo/OpenMeteoWeatherProvider.js";
 import { TeslaClient } from "../providers/tesla/TeslaClient.js";
 import { TeslaVehicleStateProvider } from "../providers/tesla/TeslaProvider.js";
-import { TibberClient } from "../providers/tibber/TibberClient.js";
+import { TibberGraphQLClient } from "../providers/tibber/TibberClient.js";
 import { TibberHomeTelemetryProvider, TibberPriceProvider } from "../providers/tibber/TibberProvider.js";
 import type { VehicleState } from "../providers/VehicleStateProvider.js";
 import { ProviderAuthService, type AuthProviderId } from "./auth/ProviderAuthService.js";
@@ -209,7 +209,7 @@ function createProviderRegistry(
 
   const tibberAccessToken = authService?.getAccessToken("tibber") ?? config.tibberAccessToken;
   if (tibberAccessToken !== null) {
-    const tibberClient = new TibberClient(tibberAccessToken);
+    const tibberClient = new TibberGraphQLClient(tibberAccessToken);
     const selection = { homeId: config.tibberHomeId };
     registry.registerElectricityPriceProvider(new TibberPriceProvider(tibberClient, selection));
     registry.registerHomeTelemetryProvider(new TibberHomeTelemetryProvider(tibberClient, selection));
@@ -255,6 +255,7 @@ interface PlanResponse {
   status: ReturnType<typeof createStatusResponse>;
   vehicleState: VehicleState | null;
   pricingContext: PricingContext;
+  tibber: TibberStatus;
   providerWarnings: string[];
   emergencyOverrideActive: boolean;
   plan: ChargingPlan;
@@ -265,6 +266,12 @@ interface PricingContext {
   currency: string | null;
   source: string;
   description: string;
+}
+
+interface TibberStatus {
+  connected: boolean;
+  status: string;
+  lastSuccessfulFetch: string | null;
 }
 
 async function createPlanResponse(
@@ -278,7 +285,7 @@ async function createPlanResponse(
     return createDemoPlanResponse(config, onboarding, emergencyOverrideActive);
   }
 
-  if (onboarding.demoMode && config.tibberAccessToken === null) {
+  if (config.tibberAccessToken === null) {
     return createDemoPlanResponse(config, onboarding, emergencyOverrideActive);
   }
 
@@ -286,10 +293,29 @@ async function createPlanResponse(
   const providerWarnings: string[] = [];
   const vehicleState = await getVehicleState(config, registry, providerWarnings);
   const homeTelemetry = await getHomeTelemetry(config, registry, providerWarnings);
-  const providerPrices = await priceProvider.getPrices({
-    startsAt: "2026-05-05T00:00:00.000Z",
-    endsAt: target.departureTime,
-  });
+  const priceQuery = createPriceQuery(target);
+  let providerPrices: PriceInterval[];
+  try {
+    providerPrices = await priceProvider.getPrices(priceQuery);
+  } catch (error) {
+    logger.error("Tibber", `Tibber price data could not be loaded: ${error instanceof Error ? error.message : "Unknown error"}`);
+    const demoResponse = createDemoPlanResponse(config, onboarding, emergencyOverrideActive);
+    return {
+      ...demoResponse,
+      providerWarnings: [
+        `Tibber price data could not be loaded: ${error instanceof Error ? error.message : "Unknown error"}`,
+        ...demoResponse.providerWarnings,
+      ],
+    };
+  }
+  if (providerPrices.length === 0) {
+    providerWarnings.push("Tibber returned no upcoming price intervals; demo prices are shown.");
+    const demoResponse = createDemoPlanResponse(config, onboarding, emergencyOverrideActive);
+    return {
+      ...demoResponse,
+      providerWarnings,
+    };
+  }
   const currentPrice = await getCurrentPrice(priceProvider, providerPrices, providerWarnings);
   const liveTarget = applyVehicleStateToTarget(target, vehicleState);
   const modeResult = applyUserModePolicy({
@@ -354,6 +380,7 @@ async function createPlanResponse(
     status: createStatusResponse(config, onboarding, emergencyOverrideActive),
     vehicleState,
     pricingContext: createPricingContext(currentPrice, priceProvider.metadata.displayName),
+    tibber: createTibberStatus(config, currentPrice === null ? providerPrices[0] ?? null : currentPrice),
     providerWarnings,
     emergencyOverrideActive,
     plan,
@@ -405,6 +432,7 @@ function createDemoPlanResponse(
       source: "Demo prices",
       description: "Electricity is cheap overnight.",
     },
+    tibber: createTibberStatus(config, null),
     providerWarnings: ["Demo mode is using realistic sample car and price data."],
     emergencyOverrideActive,
     plan,
@@ -496,6 +524,31 @@ function createPricingContext(currentPrice: PriceInterval | null, source: string
     currency: currentPrice.currency,
     source,
     description: `Current electricity price is ${currentPrice.total} ${currentPrice.currency}/kWh.`,
+  };
+}
+
+function createTibberStatus(config: AppConfig, currentPrice: PriceInterval | null): TibberStatus {
+  if (config.tibberAccessToken === null) {
+    return {
+      connected: false,
+      status: "Tibber token not configured",
+      lastSuccessfulFetch: null,
+    };
+  }
+
+  return {
+    connected: currentPrice !== null,
+    status: currentPrice === null ? "Tibber connected, waiting for price data" : "Tibber connected",
+    lastSuccessfulFetch: currentPrice === null ? null : new Date().toISOString(),
+  };
+}
+
+function createPriceQuery(target: ChargingTarget): { startsAt: string; endsAt: string } {
+  const now = new Date();
+  now.setMinutes(0, 0, 0);
+  return {
+    startsAt: now.toISOString(),
+    endsAt: target.departureTime,
   };
 }
 
@@ -1112,9 +1165,10 @@ function renderHtml(): string {
         <span class="label">Connect providers</span>
         <div class="grid">
           <div>
-            <span class="label">Tibber</span>
-            <span class="value" id="tibber-status">Not connected</span>
-            <p class="subtle" id="tibber-summary">Uses demo prices until connected.</p>
+          <span class="label">Tibber</span>
+          <span class="value" id="tibber-status">Not connected</span>
+          <p class="subtle" id="tibber-last-fetch">Last successful fetch: never</p>
+          <p class="subtle" id="tibber-summary">Uses demo prices until connected.</p>
             <div class="connect-row">
               <button type="button" id="connect-tibber">Connect Tibber</button>
               <button type="button" id="disconnect-tibber">Disconnect Tibber</button>

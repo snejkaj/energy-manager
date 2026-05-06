@@ -3,6 +3,7 @@
 import type { HomeTelemetry, PriceInterval } from "../../charging/types.js";
 import type { ElectricityPriceProvider, PriceQuery } from "../ElectricityPriceProvider.js";
 import type { HomeTelemetryProvider } from "../HomeTelemetryProvider.js";
+import { logger } from "../../app/logger.js";
 import type { GraphQLTransport } from "./TibberClient.js";
 import { TIBBER_PRICE_QUERY, TIBBER_TELEMETRY_QUERY } from "./TibberQueries.js";
 import type {
@@ -51,27 +52,41 @@ export class TibberPriceProvider implements ElectricityPriceProvider {
   ) {}
 
   async getPrices(query: PriceQuery): Promise<PriceInterval[]> {
+    logger.info("Tibber", "Tibber price fetch start");
     const data = await this.transport.execute<TibberPriceData>(TIBBER_PRICE_QUERY);
     const home = selectHome(data.viewer.homes, this.selection.homeId);
+    logger.info("Tibber", `Selected Tibber home ID: ${home.id}`);
     const priceInfo = home.currentSubscription?.priceInfo;
 
     if (priceInfo === undefined) {
+      logger.info("Tibber", "Loaded 0 Tibber price intervals");
       return [];
     }
 
     const startsAt = Date.parse(query.startsAt);
     const endsAt = Date.parse(query.endsAt);
-    return [...priceInfo.today, ...priceInfo.tomorrow]
+    const intervals = [...priceInfo.today, ...priceInfo.tomorrow]
       .filter((entry) => Date.parse(entry.startsAt) >= startsAt && Date.parse(entry.startsAt) < endsAt)
       .map(mapPriceEntry);
+    logger.info("Tibber", `Loaded ${intervals.length} Tibber price intervals`);
+    return intervals;
   }
 
   async getCurrentPrice(): Promise<PriceInterval | null> {
+    logger.info("Tibber", "Tibber current price fetch start");
     const data = await this.transport.execute<TibberPriceData>(TIBBER_PRICE_QUERY);
     const home = selectHome(data.viewer.homes, this.selection.homeId);
+    logger.info("Tibber", `Selected Tibber home ID: ${home.id}`);
     const current = home.currentSubscription?.priceInfo.current;
 
-    return current === undefined || current === null ? null : mapPriceEntry(current);
+    if (current === undefined || current === null) {
+      logger.info("Tibber", "Current Tibber price is unavailable");
+      return null;
+    }
+
+    const mapped = mapPriceEntry(current);
+    logger.info("Tibber", `Current Tibber price: ${mapped.total} ${mapped.currency}/kWh`);
+    return mapped;
   }
 
   async getRawPriceEntries(): Promise<Array<TibberPriceEntry & { homeId: string }>> {
@@ -141,6 +156,13 @@ export class TibberHomeTelemetryProvider implements HomeTelemetryProvider {
 }
 
 function selectHome<THome extends { id: string }>(homes: THome[], homeId?: string | null): THome {
+  if ((homeId === undefined || homeId === null || homeId === "") && homes.length > 1) {
+    logger.warn(
+      "Tibber",
+      `Multiple Tibber homes found; TIBBER_HOME_ID is not set, using first home: ${homes[0]?.id ?? "unknown"}`,
+    );
+  }
+
   const home = homeId === undefined || homeId === null || homeId === ""
     ? homes[0]
     : homes.find((candidate) => candidate.id === homeId);

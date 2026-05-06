@@ -8,20 +8,26 @@ export const TIBBER_PRICE_QUERY = `
         currentSubscription {
           priceInfo {
             current {
-              startsAt
               total
+              energy
+              tax
+              startsAt
               currency
               level
             }
             today {
-              startsAt
               total
+              energy
+              tax
+              startsAt
               currency
               level
             }
             tomorrow {
-              startsAt
               total
+              energy
+              tax
+              startsAt
               currency
               level
             }

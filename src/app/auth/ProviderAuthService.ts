@@ -150,7 +150,11 @@ export class ProviderAuthService {
       connected,
       demoStorage: token !== undefined && this.config.databaseUrl === null,
       summary: connected ? `${labelProvider(provider)} connected in read-only mode.` : null,
-      warning: connected ? null : `${labelProvider(provider)} is not connected.`,
+      warning: connected
+        ? null
+        : provider === "tibber"
+          ? "Tibber token not configured"
+          : `${labelProvider(provider)} is not connected.`,
       connectedAt: token?.connectedAt ?? null,
     };
   }

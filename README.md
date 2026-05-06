@@ -118,14 +118,15 @@ Optional:
 
 - Set `DATABASE_URL` to a PostgreSQL connection string to save data.
 - Add `TIBBER_ACCESS_TOKEN` to fetch real electricity prices.
+- Add `TIBBER_HOME_ID` only when the Tibber account has multiple homes and you do not want to use the first one.
 - Add `TESLA_ACCESS_TOKEN` to show live car battery level and plugged-in state.
-- Or connect Tibber/Tesla from the web UI using OAuth.
+- Connect Tesla from the web UI using OAuth. Tibber OAuth is not used yet.
 - Keep `CHARGER_PROVIDER=planning-only` until real charger control is added.
 - Use `mock-charger` only for local development and tests.
 
 Startup messages are intentionally plain:
 
-- missing Tibber token: the app explains how to connect Tibber and continues with mock prices
+- missing Tibber token: the app shows `Tibber token not configured` and continues with demo prices
 - missing database URL: the app starts in demo mode and does not save data
 - no charger provider: the app shows planning-only mode and does not control hardware
 
@@ -155,7 +156,7 @@ Initial Home Assistant options include:
 - charger power
 - charging efficiency
 
-The current electricity and telemetry defaults are mock providers for local development. Charger control defaults to planning-only mode.
+When `TIBBER_ACCESS_TOKEN` is set, the app uses Tibber as the default electricity price provider and fetches today/tomorrow prices with a personal access token. Without the token, electricity and telemetry default to mock providers for local development. Charger control defaults to planning-only mode.
 
 ## User Modes
 
@@ -255,6 +256,7 @@ To verify it works, the UI should show:
 - setup/status, normally `Demo mode`
 - battery SOC when Tesla is connected
 - current electricity price when Tibber is connected
+- Tibber connection status and last successful Tibber fetch
 - next charging window, for example `01:20 - 04:10`
 - approximate completion time, for example `approx 06:30`
 - reason list, for example cheap electricity, typical weekday trip, and expected solar
@@ -266,7 +268,7 @@ To verify it works, the UI should show:
 
 The UI has a setup section with:
 
-- Tibber: `Connected` or `Not connected`
+- Tibber: `Tibber connected` or `Tibber token not configured`
 - Tesla: `Connected` or `Not connected`
 - `Connect Tibber`
 - `Connect Tesla`
@@ -275,11 +277,20 @@ The UI has a setup section with:
 
 Secrets stay on the server. The frontend only receives a provider status and an authorization URL.
 
+For Tibber, use a personal access token first:
+
+```text
+TIBBER_ACCESS_TOKEN=
+TIBBER_HOME_ID=
+```
+
+The `Connect Tibber` button currently explains that the token must be added in configuration. Full Tibber OAuth is intentionally not active yet.
+
 In demo mode, OAuth tokens are stored in memory only and disappear when the add-on restarts. Set `DATABASE_URL` and `TOKEN_ENCRYPTION_KEY` before using persistent token storage later.
 
 ### Tibber OAuth Client
 
-Create a Tibber OAuth client in Tibber's developer/management UI.
+Tibber OAuth is planned, but the current working path is the personal access token above. Create a Tibber OAuth client later when full OAuth is implemented.
 
 Use these local redirect URLs while developing:
 

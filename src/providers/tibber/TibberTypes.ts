@@ -7,6 +7,8 @@ export interface TibberHomeSelection {
 export interface TibberPriceEntry {
   startsAt: string;
   total: number;
+  energy?: number | null;
+  tax?: number | null;
   currency: string;
   level?: string | null;
 }

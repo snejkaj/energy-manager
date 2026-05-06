@@ -32,7 +32,7 @@ export function createStartupOnboarding(config: AppConfig): StartupOnboarding {
 
   if (config.tibberAccessToken === null) {
     setupMessages.push(
-      "Tibber is not connected yet. Add TIBBER_ACCESS_TOKEN to fetch real electricity prices; mock prices are used for setup.",
+      "Tibber token not configured. Add TIBBER_ACCESS_TOKEN to fetch real electricity prices; demo prices are used for setup.",
     );
   }
 

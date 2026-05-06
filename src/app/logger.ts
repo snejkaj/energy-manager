@@ -1,4 +1,4 @@
-type LogLevel = "INFO" | "ERROR";
+type LogLevel = "INFO" | "WARN" | "ERROR";
 
 function write(level: LogLevel, component: string, message: string): void {
   const line = `[${new Date().toISOString()}] [${level}] [${component}] ${message}`;
@@ -12,6 +12,10 @@ function write(level: LogLevel, component: string, message: string): void {
 export const logger = {
   info(component: string, message: string): void {
     write("INFO", component, message);
+  },
+
+  warn(component: string, message: string): void {
+    write("WARN", component, message);
   },
 
   error(component: string, message: string): void {
