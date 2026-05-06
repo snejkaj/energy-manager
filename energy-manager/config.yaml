@@ -1,6 +1,6 @@
 # Requirements: HA-001, HA-002, HA-006, HA-007, ONB-001, ONB-002, ONB-003, ONB-004
 name: Energy Manager
-version: 0.1.1
+version: 0.1.2
 slug: energy-manager
 description: Plans EV charging from electricity prices. Starts in planning-only mode until setup is complete.
 arch:
@@ -27,31 +27,6 @@ options:
   vehicle_state_provider: "mock-vehicle-state"
   weather_forecast_provider: "mock-weather-forecast"
   user_mode: "safe"
-  soc_buffer_percent: "15"
-  start_early_minutes: "90"
-  allow_undercharge_risk: false
-  weather_latitude: ""
-  weather_longitude: ""
-  solar_panel_tilt_degrees: ""
-  solar_panel_azimuth_degrees: ""
-  tibber_access_token: ""
-  tibber_home_id: ""
-  tesla_access_token: ""
-  tesla_vehicle_id: ""
-  tibber_oauth_client_id: ""
-  tibber_oauth_client_secret: ""
-  tibber_oauth_redirect_uri: ""
-  tesla_oauth_client_id: ""
-  tesla_oauth_client_secret: ""
-  tesla_oauth_redirect_uri: ""
-  token_encryption_key: ""
-  database_url: ""
-  departure_time: "07:00"
-  minimum_soc_percent: "60"
-  maximum_soc_percent: "80"
-  battery_capacity_kwh: "75"
-  charger_power_kw: "11"
-  charging_efficiency: "0.9"
 schema:
   electricity_price_provider: str?
   home_telemetry_provider: str?
