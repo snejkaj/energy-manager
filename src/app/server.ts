@@ -5,7 +5,7 @@ import { createServer, type ServerResponse } from "node:http";
 import { calculateChargingPlan } from "../charging/ChargingOptimizer.js";
 import { EmergencyChargingService } from "../charging/EmergencyChargingService.js";
 import { estimateCompletionForTarget } from "../charging/CompletionEstimator.js";
-import type { ChargingPlan, ChargingTarget, PriceInterval } from "../charging/types.js";
+import type { ChargingPlan, ChargingTarget, HomeTelemetry, PriceInterval } from "../charging/types.js";
 import { applyUserModePolicy } from "../charging/UserModePolicy.js";
 import type { DecisionOutcomeRecord } from "../db/types/persistenceTypes.js";
 import { analyzeOutcomes } from "../feedback/DailyFeedbackService.js";
@@ -13,8 +13,11 @@ import { MockChargerProvider } from "../providers/mock/MockChargerProvider.js";
 import { MockElectricityPriceProvider } from "../providers/mock/MockElectricityPriceProvider.js";
 import { ProviderRegistry } from "../providers/ProviderRegistry.js";
 import { OpenMeteoWeatherProvider } from "../providers/openMeteo/OpenMeteoWeatherProvider.js";
+import { TeslaClient } from "../providers/tesla/TeslaClient.js";
+import { TeslaVehicleStateProvider } from "../providers/tesla/TeslaProvider.js";
 import { TibberClient } from "../providers/tibber/TibberClient.js";
 import { TibberHomeTelemetryProvider, TibberPriceProvider } from "../providers/tibber/TibberProvider.js";
+import type { VehicleState } from "../providers/VehicleStateProvider.js";
 import { loadConfig, type AppConfig } from "./config.js";
 import { assertStartupIsReady, createStartupOnboarding, type StartupOnboarding } from "./onboarding.js";
 
@@ -133,6 +136,15 @@ function createProviderRegistry(config: ReturnType<typeof loadConfig>): Provider
     registry.registerHomeTelemetryProvider(new TibberHomeTelemetryProvider(tibberClient, selection));
   }
 
+  if (config.teslaAccessToken !== null) {
+    registry.registerVehicleStateProvider(
+      new TeslaVehicleStateProvider(
+        new TeslaClient(config.teslaAccessToken),
+        { vehicleId: config.teslaVehicleId },
+      ),
+    );
+  }
+
   if (config.weatherLatitude !== null && config.weatherLongitude !== null) {
     registry.registerWeatherForecastProvider(
       new OpenMeteoWeatherProvider({
@@ -164,8 +176,18 @@ interface PlanResponse {
   dailyFeedback: ReturnType<typeof analyzeOutcomes>;
   onboarding: ReturnType<typeof createOnboardingResponse>;
   status: ReturnType<typeof createStatusResponse>;
+  vehicleState: VehicleState | null;
+  pricingContext: PricingContext;
+  providerWarnings: string[];
   emergencyOverrideActive: boolean;
   plan: ChargingPlan;
+}
+
+interface PricingContext {
+  currentPrice: number | null;
+  currency: string | null;
+  source: string;
+  description: string;
 }
 
 async function createPlanResponse(
@@ -184,19 +206,24 @@ async function createPlanResponse(
   }
 
   const target = createChargingTarget(config);
+  const providerWarnings: string[] = [];
+  const vehicleState = await getVehicleState(config, registry, providerWarnings);
+  const homeTelemetry = await getHomeTelemetry(config, registry, providerWarnings);
   const providerPrices = await priceProvider.getPrices({
     startsAt: "2026-05-05T00:00:00.000Z",
     endsAt: target.departureTime,
   });
+  const currentPrice = await getCurrentPrice(priceProvider, providerPrices, providerWarnings);
+  const liveTarget = applyVehicleStateToTarget(target, vehicleState);
   const modeResult = applyUserModePolicy({
-    target,
+    target: liveTarget,
     mode: config.userMode,
   });
   const normalPlan = calculateChargingPlan(providerPrices, modeResult.target);
   const emergencyPlan = emergencyOverrideActive
     ? new EmergencyChargingService().calculate({
       now: providerPrices[0]?.startsAt ?? "2026-05-05T00:00:00.000Z",
-      target,
+      target: liveTarget,
       prices: providerPrices,
     })
     : null;
@@ -205,20 +232,25 @@ async function createPlanResponse(
     ? modeResult.reason.slice(0, 4)
     : [...emergencyPlan.reason, "planning_only_no_hardware_control"].slice(0, 4);
   const completion = emergencyPlan === null
-    ? estimateCompletionForTarget(plan.slots[0]?.startsAt ?? providerPrices[0]?.startsAt ?? "2026-05-05T00:00:00.000Z", modeResult.target)
+    ? estimateCompletionForTarget(
+      plan.slots[0]?.startsAt ?? providerPrices[0]?.startsAt ?? "2026-05-05T00:00:00.000Z",
+      modeResult.target,
+      undefined,
+      homeTelemetry,
+    )
     : {
       approximate: true as const,
       estimatedCompletionTime: emergencyPlan.estimatedCompletionTime,
       estimatedCompletionTimeMin: emergencyPlan.estimatedCompletionTimeMin,
       estimatedCompletionTimeMax: emergencyPlan.estimatedCompletionTimeMax,
       remainingEnergyKwh: emergencyPlan.plannedEnergyKwh + emergencyPlan.deficitKwh,
-      effectivePowerKw: target.chargerPowerKw,
+      effectivePowerKw: liveTarget.chargerPowerKw,
       timeNeededHours: (Date.parse(emergencyPlan.estimatedCompletionTime) - Date.parse(providerPrices[0]?.startsAt ?? "2026-05-05T00:00:00.000Z")) / 3_600_000,
       reason: ["approximate_completion_estimate", "user_requested_100_percent", "planning_only_no_hardware_control"],
     };
 
   return {
-    currentPrice: providerPrices[0] ?? price("2026-05-05T00:00:00.000Z", 0),
+    currentPrice: currentPrice ?? providerPrices[0] ?? price("2026-05-05T00:00:00.000Z", 0),
     prices: providerPrices,
     userMode: modeResult.policy,
     planReasons,
@@ -234,6 +266,9 @@ async function createPlanResponse(
     dailyFeedback: analyzeOutcomes(dailyOutcomes),
     onboarding: createOnboardingResponse(onboarding),
     status: createStatusResponse(config, onboarding, emergencyOverrideActive),
+    vehicleState,
+    pricingContext: createPricingContext(currentPrice, priceProvider.metadata.displayName),
+    providerWarnings,
     emergencyOverrideActive,
     plan,
   };
@@ -252,7 +287,7 @@ function createDemoPlanResponse(
   const completion = emergencyOverrideActive ? createDemoEmergencyCompletion() : createDemoCompletion();
 
   return {
-    currentPrice: price("2026-05-05T01:00:00.000Z", 0.88),
+    currentPrice: price("2026-05-05T03:00:00.000Z", 0.88),
     prices,
     userMode: modeResult.policy,
     planReasons: emergencyOverrideActive
@@ -270,8 +305,109 @@ function createDemoPlanResponse(
     dailyFeedback: analyzeOutcomes(dailyOutcomes),
     onboarding: createOnboardingResponse(onboarding),
     status: createStatusResponse(config, onboarding, emergencyOverrideActive),
+    vehicleState: {
+      batterySocPercent: 42,
+      pluggedIn: true,
+      chargingState: "Stopped",
+      estimatedRangeKm: 238,
+      source: "demo",
+      observedAt: "2026-05-05T00:00:00.000Z",
+    },
+    pricingContext: {
+      currentPrice: 0.88,
+      currency: "SEK",
+      source: "Demo prices",
+      description: "Electricity is cheap overnight.",
+    },
+    providerWarnings: [
+      "Demo mode is using realistic sample car and price data.",
+    ],
     emergencyOverrideActive,
     plan,
+  };
+}
+
+async function getVehicleState(
+  config: AppConfig,
+  registry: ProviderRegistry,
+  warnings: string[],
+): Promise<VehicleState | null> {
+  if (config.teslaAccessToken === null) {
+    warnings.push("Tesla is disconnected. Live battery level is not available.");
+    return null;
+  }
+
+  const provider = registry.getVehicleStateProvider(config.vehicleStateProvider);
+  if (provider === null) {
+    warnings.push(`Vehicle provider is unavailable: ${config.vehicleStateProvider}.`);
+    return null;
+  }
+
+  try {
+    return await provider.getVehicleState();
+  } catch (error) {
+    warnings.push(`Tesla data could not be loaded: ${error instanceof Error ? error.message : "Unknown error"}`);
+    return null;
+  }
+}
+
+async function getHomeTelemetry(
+  config: AppConfig,
+  registry: ProviderRegistry,
+  warnings: string[],
+): Promise<HomeTelemetry | null> {
+  const provider = registry.getHomeTelemetryProvider(config.homeTelemetryProvider);
+  if (provider === null) {
+    return null;
+  }
+
+  try {
+    return await provider.getCurrentTelemetry();
+  } catch (error) {
+    warnings.push(`Home consumption data could not be loaded: ${error instanceof Error ? error.message : "Unknown error"}`);
+    return null;
+  }
+}
+
+async function getCurrentPrice(
+  provider: NonNullable<ReturnType<ProviderRegistry["getElectricityPriceProvider"]>>,
+  providerPrices: PriceInterval[],
+  warnings: string[],
+): Promise<PriceInterval | null> {
+  try {
+    return provider.getCurrentPrice === undefined ? providerPrices[0] ?? null : await provider.getCurrentPrice();
+  } catch (error) {
+    warnings.push(`Current electricity price could not be loaded: ${error instanceof Error ? error.message : "Unknown error"}`);
+    return providerPrices[0] ?? null;
+  }
+}
+
+function applyVehicleStateToTarget(target: ChargingTarget, vehicleState: VehicleState | null): ChargingTarget {
+  if (vehicleState?.batterySocPercent === null || vehicleState?.batterySocPercent === undefined) {
+    return target;
+  }
+
+  return {
+    ...target,
+    currentSocPercent: vehicleState.batterySocPercent,
+  };
+}
+
+function createPricingContext(currentPrice: PriceInterval | null, source: string): PricingContext {
+  if (currentPrice === null) {
+    return {
+      currentPrice: null,
+      currency: null,
+      source,
+      description: "Live electricity price is not available.",
+    };
+  }
+
+  return {
+    currentPrice: currentPrice.total,
+    currency: currentPrice.currency,
+    source,
+    description: `Current electricity price is ${currentPrice.total} ${currentPrice.currency}/kWh.`,
   };
 }
 
@@ -618,6 +754,14 @@ function renderHtml(): string {
           <span class="value" id="cost">25.53 SEK</span>
         </div>
         <div class="item">
+          <span class="label">Battery</span>
+          <span class="value" id="battery">42%</span>
+        </div>
+        <div class="item">
+          <span class="label">Electricity</span>
+          <span class="value" id="electricity">0.88 SEK/kWh</span>
+        </div>
+        <div class="item">
           <span class="label">Priority</span>
           <span class="value" id="priority">Always ready</span>
         </div>
@@ -734,6 +878,14 @@ function renderHtml(): string {
           "approx " + formatTime(data.completion.estimatedCompletionTime) + " (" + formatTime(data.completion.estimatedCompletionTimeMin) + "-" + formatTime(data.completion.estimatedCompletionTimeMax) + ")";
         document.getElementById("cost").textContent =
           data.plan.estimatedCost + " " + (data.plan.currency || "");
+        document.getElementById("battery").textContent =
+          data.vehicleState && data.vehicleState.batterySocPercent !== null
+            ? data.vehicleState.batterySocPercent + "%"
+            : "Not connected";
+        document.getElementById("electricity").textContent =
+          data.pricingContext.currentPrice !== null
+            ? data.pricingContext.currentPrice + " " + data.pricingContext.currency + "/kWh"
+            : "Not connected";
         document.getElementById("priority").textContent =
           strategyName(data.userMode.mode);
         document.getElementById("setup-mode").textContent =
@@ -762,8 +914,9 @@ function renderHtml(): string {
         document.getElementById("setup-notes").innerHTML = [
           ...data.onboarding.setupWarnings,
           ...data.onboarding.setupMessages,
+          ...data.providerWarnings,
         ]
-          .slice(0, 3)
+          .slice(0, 4)
           .map((text) => "<li>" + text + "</li>")
           .join("");
 

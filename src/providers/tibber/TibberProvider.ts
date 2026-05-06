@@ -66,6 +66,14 @@ export class TibberPriceProvider implements ElectricityPriceProvider {
       .map(mapPriceEntry);
   }
 
+  async getCurrentPrice(): Promise<PriceInterval | null> {
+    const data = await this.transport.execute<TibberPriceData>(TIBBER_PRICE_QUERY);
+    const home = selectHome(data.viewer.homes, this.selection.homeId);
+    const current = home.currentSubscription?.priceInfo.current;
+
+    return current === undefined || current === null ? null : mapPriceEntry(current);
+  }
+
   async getRawPriceEntries(): Promise<Array<TibberPriceEntry & { homeId: string }>> {
     const data = await this.transport.execute<TibberPriceData>(TIBBER_PRICE_QUERY);
     const home = selectHome(data.viewer.homes, this.selection.homeId);

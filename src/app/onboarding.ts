@@ -36,6 +36,12 @@ export function createStartupOnboarding(config: AppConfig): StartupOnboarding {
     );
   }
 
+  if (config.teslaAccessToken === null) {
+    setupMessages.push(
+      "Tesla is not connected yet. Add TESLA_ACCESS_TOKEN to show live battery level and plugged-in state.",
+    );
+  }
+
   if (planningOnlyMode) {
     setupMessages.push(
       "Planning only mode is active. No charger hardware will be controlled until a charger provider is configured.",

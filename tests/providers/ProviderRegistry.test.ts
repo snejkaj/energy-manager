@@ -6,6 +6,8 @@ import { ProviderRegistry } from "../../src/providers/ProviderRegistry.js";
 import { MockChargerProvider } from "../../src/providers/mock/MockChargerProvider.js";
 import { MockElectricityPriceProvider } from "../../src/providers/mock/MockElectricityPriceProvider.js";
 import { MockHomeTelemetryProvider } from "../../src/providers/mock/MockHomeTelemetryProvider.js";
+import { TeslaVehicleStateProvider } from "../../src/providers/tesla/TeslaProvider.js";
+import type { TeslaTransport } from "../../src/providers/tesla/TeslaClient.js";
 import type { WeatherForecastProvider } from "../../src/providers/WeatherForecastProvider.js";
 
 describe("ProviderRegistry", () => {
@@ -34,6 +36,7 @@ describe("ProviderRegistry", () => {
     expect(registry.list().homeTelemetryProviders).toHaveLength(0);
     expect(registry.list().chargerProviders).toHaveLength(0);
     expect(registry.list().weatherForecastProviders).toHaveLength(0);
+    expect(registry.list().vehicleStateProviders).toHaveLength(0);
   });
 
   it("registers weather forecast providers", () => {
@@ -45,7 +48,22 @@ describe("ProviderRegistry", () => {
 
     expect(registry.getWeatherForecastProvider(provider.metadata.id)).toBe(provider);
   });
+
+  it("registers vehicle state providers", () => {
+    const registry = new ProviderRegistry();
+    const provider = new TeslaVehicleStateProvider(new FakeTeslaTransport());
+
+    registry.registerVehicleStateProvider(provider);
+
+    expect(registry.getVehicleStateProvider(provider.metadata.id)).toBe(provider);
+  });
 });
+
+class FakeTeslaTransport implements TeslaTransport {
+  async get<TData>(): Promise<TData> {
+    return { response: [] } as TData;
+  }
+}
 
 class FakeWeatherForecastProvider implements WeatherForecastProvider {
   metadata = {

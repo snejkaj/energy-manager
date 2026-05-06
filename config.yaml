@@ -23,6 +23,7 @@ options:
   electricity_price_provider: "mock-electricity-price"
   home_telemetry_provider: "mock-home-telemetry"
   charger_provider: "planning-only"
+  vehicle_state_provider: "tesla"
   weather_forecast_provider: "open-meteo"
   user_mode: "safe"
   soc_buffer_percent: 15
@@ -34,6 +35,8 @@ options:
   solar_panel_azimuth_degrees: null
   tibber_access_token: ""
   tibber_home_id: ""
+  tesla_access_token: ""
+  tesla_vehicle_id: ""
   database_url: ""
   departure_time: "07:00"
   minimum_soc_percent: 60
@@ -45,6 +48,7 @@ schema:
   electricity_price_provider: str
   home_telemetry_provider: str
   charger_provider: "list(planning-only|mock-charger)"
+  vehicle_state_provider: "list(tesla)"
   weather_forecast_provider: str
   user_mode: "list(safe|balanced|savings)"
   soc_buffer_percent: "float(0,100)"
@@ -56,6 +60,8 @@ schema:
   solar_panel_azimuth_degrees: float?
   tibber_access_token: password
   tibber_home_id: str?
+  tesla_access_token: password?
+  tesla_vehicle_id: str?
   database_url: str
   departure_time: "match(^([01][0-9]|2[0-3]):[0-5][0-9]$)"
   minimum_soc_percent: "int(0,100)"

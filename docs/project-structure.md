@@ -43,11 +43,13 @@ This keeps the first version small while still leaving room for a richer fronten
       ElectricityPriceProvider.ts
       HomeTelemetryProvider.ts
       ProviderRegistry.ts
+      VehicleStateProvider.ts
       WeatherForecastProvider.ts
       providerTypes.ts
       mock/
       openMeteo/
       tibber/
+      tesla/
       zaptec/
     db/
       DatabaseClient.ts
@@ -109,6 +111,7 @@ Owns vendor extension points. Tibber, Zaptec, Home Assistant sensors, Nord Pool,
 - `ElectricityPriceProvider.ts`: common interface for electricity price sources.
 - `HomeTelemetryProvider.ts`: common interface for current consumption and production sources.
 - `ChargerProvider.ts`: common interface for charger vendors.
+- `VehicleStateProvider.ts`: common read-only interface for vehicle SOC, plugged-in state, charging state, and range.
 - `WeatherForecastProvider.ts`: common interface for weather forecast providers.
 - `ProviderRegistry.ts`: registration and lookup for available providers.
 - `providerTypes.ts`: shared provider metadata and configuration schema types.
@@ -117,6 +120,8 @@ Owns vendor extension points. Tibber, Zaptec, Home Assistant sensors, Nord Pool,
 - `tibber/TibberProvider.ts`: provider implementations for Tibber price and live telemetry.
 - `tibber/TibberQueries.ts`: GraphQL queries used by the Tibber provider.
 - `tibber/TibberTypes.ts`: Tibber-specific response types that must not leak into domain logic.
+- `tesla/TeslaClient.ts`: Tesla Fleet API read-only HTTP client.
+- `tesla/TeslaProvider.ts`: Tesla vehicle state provider for SOC, plugged-in state, charging state, and range.
 
 ### `src/db`
 
@@ -182,7 +187,10 @@ Owns travel signals that can influence future charging targets.
 DATABASE_URL=postgres://user:password@localhost:5432/energy_manager
 TIBBER_ACCESS_TOKEN=
 TIBBER_HOME_ID=
+TESLA_ACCESS_TOKEN=
+TESLA_VEHICLE_ID=
 CHARGER_PROVIDER=planning-only
+VEHICLE_STATE_PROVIDER=tesla
 PORT=3000
 ```
 

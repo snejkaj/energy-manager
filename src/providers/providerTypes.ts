@@ -1,6 +1,6 @@
 // Requirements: PRV-001, PRV-002, PRV-003, PRV-004, PRV-005, PRV-006, ARC-006
 
-export type ProviderKind = "electricity-price" | "home-telemetry" | "charger" | "weather-forecast";
+export type ProviderKind = "electricity-price" | "home-telemetry" | "charger" | "weather-forecast" | "vehicle-state";
 
 export interface ProviderMetadata {
   id: string;

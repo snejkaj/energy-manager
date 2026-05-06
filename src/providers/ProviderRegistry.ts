@@ -4,6 +4,7 @@ import type { ChargerProvider } from "./ChargerProvider.js";
 import type { ElectricityPriceProvider } from "./ElectricityPriceProvider.js";
 import type { HomeTelemetryProvider } from "./HomeTelemetryProvider.js";
 import type { ProviderKind } from "./providerTypes.js";
+import type { VehicleStateProvider } from "./VehicleStateProvider.js";
 import type { WeatherForecastProvider } from "./WeatherForecastProvider.js";
 
 export interface RegisteredProviders {
@@ -11,6 +12,7 @@ export interface RegisteredProviders {
   homeTelemetryProviders: HomeTelemetryProvider[];
   chargerProviders: ChargerProvider[];
   weatherForecastProviders: WeatherForecastProvider[];
+  vehicleStateProviders: VehicleStateProvider[];
 }
 
 export class ProviderRegistry {
@@ -18,6 +20,7 @@ export class ProviderRegistry {
   private readonly homeTelemetryProviders = new Map<string, HomeTelemetryProvider>();
   private readonly chargerProviders = new Map<string, ChargerProvider>();
   private readonly weatherForecastProviders = new Map<string, WeatherForecastProvider>();
+  private readonly vehicleStateProviders = new Map<string, VehicleStateProvider>();
 
   registerElectricityPriceProvider(provider: ElectricityPriceProvider): void {
     this.assertKind(provider.metadata.kind, "electricity-price");
@@ -39,6 +42,11 @@ export class ProviderRegistry {
     this.weatherForecastProviders.set(provider.metadata.id, provider);
   }
 
+  registerVehicleStateProvider(provider: VehicleStateProvider): void {
+    this.assertKind(provider.metadata.kind, "vehicle-state");
+    this.vehicleStateProviders.set(provider.metadata.id, provider);
+  }
+
   getElectricityPriceProvider(id: string): ElectricityPriceProvider | null {
     return this.electricityPriceProviders.get(id) ?? null;
   }
@@ -55,12 +63,17 @@ export class ProviderRegistry {
     return this.weatherForecastProviders.get(id) ?? null;
   }
 
+  getVehicleStateProvider(id: string): VehicleStateProvider | null {
+    return this.vehicleStateProviders.get(id) ?? null;
+  }
+
   list(): RegisteredProviders {
     return {
       electricityPriceProviders: [...this.electricityPriceProviders.values()],
       homeTelemetryProviders: [...this.homeTelemetryProviders.values()],
       chargerProviders: [...this.chargerProviders.values()],
       weatherForecastProviders: [...this.weatherForecastProviders.values()],
+      vehicleStateProviders: [...this.vehicleStateProviders.values()],
     };
   }
 

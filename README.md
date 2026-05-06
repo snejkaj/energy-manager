@@ -27,6 +27,7 @@ Implemented so far:
 - provider interfaces for different electricity suppliers and charger vendors
 - PostgreSQL schema for prices, forecasts, travel data, charging plans, decision logs, and outcomes
 - Tibber provider for price data and optional home power readings
+- read-only Tesla provider for SOC, plugged-in state, charging state, and estimated range
 - Open-Meteo weather provider
 - optional solar prediction from weather and historical production
 - travel event system for calendar tags, manual "Needs car", and AI-inferred trips
@@ -115,6 +116,7 @@ Optional:
 
 - Set `DATABASE_URL` to a PostgreSQL connection string to save data.
 - Add `TIBBER_ACCESS_TOKEN` to fetch real electricity prices.
+- Add `TESLA_ACCESS_TOKEN` to show live car battery level and plugged-in state.
 - Keep `CHARGER_PROVIDER=planning-only` until real charger control is added.
 - Use `mock-charger` only for local development and tests.
 
@@ -131,11 +133,14 @@ Initial Home Assistant options include:
 - electricity price provider
 - home telemetry provider
 - charger provider, defaulting to planning-only mode
+- vehicle state provider
 - weather forecast provider
 - weather latitude and longitude
 - optional solar panel tilt and azimuth
 - Tibber access token
 - Tibber home ID
+- Tesla access token
+- Tesla vehicle ID
 - PostgreSQL database URL
 - departure time
 - minimum SOC
@@ -230,6 +235,8 @@ To verify it works, the UI should show:
 - `Demo mode - no data is saved`
 - current priority, normally `Always ready`
 - setup/status, normally `Demo mode`
+- battery SOC when Tesla is connected
+- current electricity price when Tibber is connected
 - next charging window, for example `01:20 - 04:10`
 - approximate completion time, for example `approx 06:30`
 - reason list, for example cheap electricity, typical weekday trip, and expected solar

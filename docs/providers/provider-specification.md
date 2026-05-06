@@ -16,6 +16,7 @@ The initial provider types are:
 | Home telemetry | `HomeTelemetryProvider` | Fetches current consumption and production from Tibber, Home Assistant entities, MQTT, or another meter source. |
 | Weather forecast | `WeatherForecastProvider` | Fetches hourly weather and solar radiation forecasts from Open-Meteo or another weather source. |
 | Charger | `ChargerProvider` | Creates a `ChargerController` for Zaptec, Easee, Wallbox, mock chargers, or other charger systems. |
+| Vehicle state | `VehicleStateProvider` | Fetches read-only vehicle state such as SOC, plugged-in state, charging state, and estimated range. |
 
 ## Contract Rules
 
@@ -27,6 +28,7 @@ The initial provider types are:
 - Provider implementations must be registered through `ProviderRegistry`.
 - Adding a provider should not require changes to `ChargingOptimizer`.
 - Weather and solar prediction providers must remain optional inputs to charging decisions.
+- Vehicle state providers must be read-only unless a later requirement explicitly adds control.
 
 ## Electricity Price Provider
 
@@ -109,6 +111,18 @@ Required behavior:
 
 The initial version must keep production charger control disabled until real control is explicitly added as a later requirement.
 
+## Vehicle State Provider
+
+Implement `src/providers/VehicleStateProvider.ts`.
+
+Required behavior:
+
+- return `VehicleState | null`
+- include SOC, plugged-in state, charging state, and estimated range when available
+- handle missing auth or unavailable vehicles gracefully
+- never call charger or vehicle command endpoints
+- avoid vendor-specific types outside the provider implementation
+
 ## Suggested Folder Layout
 
 ```text
@@ -117,11 +131,13 @@ src/providers/
   HomeTelemetryProvider.ts
   WeatherForecastProvider.ts
   ChargerProvider.ts
+  VehicleStateProvider.ts
   ProviderRegistry.ts
   providerTypes.ts
   mock/
   openMeteo/
   tibber/
+  tesla/
   zaptec/
   homeAssistant/
   nordPool/

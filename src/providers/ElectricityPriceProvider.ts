@@ -16,4 +16,5 @@ export interface PriceQuery {
 export interface ElectricityPriceProvider
   extends Provider<ElectricityPriceProviderCapabilities> {
   getPrices(query: PriceQuery): Promise<PriceInterval[]>;
+  getCurrentPrice?(): Promise<PriceInterval | null>;
 }

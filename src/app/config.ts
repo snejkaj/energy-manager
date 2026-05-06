@@ -5,9 +5,12 @@ export interface AppConfig {
   databaseUrl: string | null;
   tibberAccessToken: string | null;
   tibberHomeId: string | null;
+  teslaAccessToken: string | null;
+  teslaVehicleId: string | null;
   electricityPriceProvider: string;
   homeTelemetryProvider: string;
   chargerProvider: string | null;
+  vehicleStateProvider: string;
   weatherForecastProvider: string;
   userMode: "safe" | "balanced" | "savings";
   socBufferPercent: number;
@@ -31,9 +34,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     databaseUrl: emptyToNull(env.DATABASE_URL),
     tibberAccessToken: emptyToNull(env.TIBBER_ACCESS_TOKEN),
     tibberHomeId: emptyToNull(env.TIBBER_HOME_ID),
+    teslaAccessToken: emptyToNull(env.TESLA_ACCESS_TOKEN),
+    teslaVehicleId: emptyToNull(env.TESLA_VEHICLE_ID),
     electricityPriceProvider: emptyToNull(env.ELECTRICITY_PRICE_PROVIDER) ?? "mock-electricity-price",
     homeTelemetryProvider: emptyToNull(env.HOME_TELEMETRY_PROVIDER) ?? "mock-home-telemetry",
     chargerProvider: emptyToNull(env.CHARGER_PROVIDER) ?? "planning-only",
+    vehicleStateProvider: emptyToNull(env.VEHICLE_STATE_PROVIDER) ?? "tesla",
     weatherForecastProvider: emptyToNull(env.WEATHER_FORECAST_PROVIDER) ?? "open-meteo",
     userMode: parseUserMode(env.USER_MODE),
     socBufferPercent: parseNumberWithDefault(env.SOC_BUFFER_PERCENT, 15),

@@ -34,10 +34,13 @@ log_info() {
 export PORT=3000
 export TIBBER_ACCESS_TOKEN="$(config_value 'tibber_access_token')"
 export TIBBER_HOME_ID="$(config_value 'tibber_home_id')"
+export TESLA_ACCESS_TOKEN="$(config_value 'tesla_access_token')"
+export TESLA_VEHICLE_ID="$(config_value 'tesla_vehicle_id')"
 export DATABASE_URL="$(config_value 'database_url')"
 export ELECTRICITY_PRICE_PROVIDER="$(config_value 'electricity_price_provider')"
 export HOME_TELEMETRY_PROVIDER="$(config_value 'home_telemetry_provider')"
 export CHARGER_PROVIDER="$(config_value 'charger_provider')"
+export VEHICLE_STATE_PROVIDER="$(config_value 'vehicle_state_provider')"
 export WEATHER_FORECAST_PROVIDER="$(config_value 'weather_forecast_provider')"
 export USER_MODE="$(config_value 'user_mode')"
 export SOC_BUFFER_PERCENT="$(config_value 'soc_buffer_percent')"

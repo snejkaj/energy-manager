@@ -156,6 +156,13 @@ Status values are defined in [requirements-traceability.md](requirements-traceab
 | `PRV-008` | `src/providers/ChargerProvider.ts`, `src/charging/ChargingOptimizer.ts` | review | implemented |
 | `PRV-009` | `docs/providers/provider-specification.md` | review | implemented |
 | `PRV-010` | `src/providers/WeatherForecastProvider.ts`, `src/providers/openMeteo/OpenMeteoWeatherProvider.ts` | provider tests | implemented |
+| `PRV-011` | `src/providers/VehicleStateProvider.ts`, `src/providers/tesla/TeslaProvider.ts` | `tests/providers/TeslaProvider.test.ts` | implemented |
+| `TES-001` | `src/providers/tesla/TeslaProvider.ts`, `src/app/server.ts` | `tests/providers/TeslaProvider.test.ts` | implemented |
+| `TES-002` | `src/providers/tesla/TeslaProvider.ts`, `src/app/server.ts` | `tests/providers/TeslaProvider.test.ts` | implemented |
+| `TES-003` | `src/providers/tesla/TeslaProvider.ts`, `src/app/server.ts` | `tests/providers/TeslaProvider.test.ts` | implemented |
+| `TES-004` | `src/providers/tesla/TeslaProvider.ts`, `src/app/server.ts` | `tests/providers/TeslaProvider.test.ts` | implemented |
+| `TES-005` | `src/providers/tesla/TeslaProvider.ts`, no vehicle command integration | review | implemented |
+| `TES-006` | `src/app/onboarding.ts`, `src/app/server.ts` | onboarding/provider tests | implemented |
 
 ## Telemetry and Charging
 

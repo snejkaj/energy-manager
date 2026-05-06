@@ -15,7 +15,13 @@ describe("TibberPriceProvider", () => {
             {
               id: "home-1",
               currentSubscription: {
-                priceInfo: {
+                  priceInfo: {
+                  current: {
+                    startsAt: "2026-05-05T00:00:00+02:00",
+                    total: 1.25,
+                    currency: "SEK",
+                    level: "NORMAL",
+                  },
                   today: [
                     {
                       startsAt: "2026-05-05T00:00:00+02:00",
@@ -46,6 +52,39 @@ describe("TibberPriceProvider", () => {
         currency: "SEK",
       },
     ]);
+  });
+
+  it("maps current Tibber price to an internal price interval", async () => {
+    const provider = new TibberPriceProvider(
+      new FakeTransport({
+        viewer: {
+          homes: [
+            {
+              id: "home-1",
+              currentSubscription: {
+                priceInfo: {
+                  current: {
+                    startsAt: "2026-05-05T00:00:00+02:00",
+                    total: 1.25,
+                    currency: "SEK",
+                    level: "NORMAL",
+                  },
+                  today: [],
+                  tomorrow: [],
+                },
+              },
+            },
+          ],
+        },
+      }),
+    );
+
+    await expect(provider.getCurrentPrice()).resolves.toEqual({
+      startsAt: "2026-05-04T22:00:00.000Z",
+      endsAt: "2026-05-04T23:00:00.000Z",
+      total: 1.25,
+      currency: "SEK",
+    });
   });
 });
 

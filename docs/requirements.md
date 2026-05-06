@@ -37,6 +37,7 @@ Areas:
 - `PRE`: prediction and forecast behavior
 - `FDB`: daily feedback and outcome analysis
 - `ONB`: onboarding and startup guidance
+- `TES`: Tesla read-only vehicle data
 
 ## Product Scope
 
@@ -191,6 +192,18 @@ Areas:
 | `PRV-008` | Adding a new charger vendor must not require changes to `ChargingOptimizer`. |
 | `PRV-009` | Provider documentation must describe how to add a new provider implementation. |
 | `PRV-010` | Weather forecast integrations must implement a common `WeatherForecastProvider` interface. |
+| `PRV-011` | Vehicle state integrations must implement a common read-only `VehicleStateProvider` interface. |
+
+## Tesla Vehicle Data Requirements
+
+| ID | Requirement |
+| --- | --- |
+| `TES-001` | Tesla integration must fetch battery SOC in read-only mode. |
+| `TES-002` | Tesla integration must fetch plugged-in state in read-only mode. |
+| `TES-003` | Tesla integration must fetch charging state in read-only mode. |
+| `TES-004` | Tesla integration must fetch estimated range in read-only mode. |
+| `TES-005` | Tesla integration must not implement charging control or vehicle commands. |
+| `TES-006` | Missing Tesla authentication must be handled gracefully with a clear UI warning. |
 
 ## Persistence Requirements
 
