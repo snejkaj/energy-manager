@@ -42,6 +42,15 @@ configuration:
   tibber_home_id:
     name: Tibber home selection
     description: Most users should leave this empty. Only use it if your Tibber account has multiple homes and you want to choose one.
+  tesla_access_token:
+    name: Tesla access token
+    description: Optional Tesla Fleet API token. Used read-only for vehicle state.
+  tesla_vehicle_id:
+    name: Tesla vehicle
+    description: Optional vehicle ID or VIN. Leave empty to use the first vehicle.
+  tesla_region:
+    name: Tesla region
+    description: Use eu by default, or us for North America.
   database_url:
     name: PostgreSQL connection URL
     description: PostgreSQL database URL used for price storage.

@@ -98,6 +98,7 @@ try {
     bindButton("connect-tesla", "Connect Tesla", () => startProviderAuth("tesla"), { required: false });
     bindButton("disconnect-tibber", "Disconnect Tibber", () => disconnectProvider("tibber"), { required: false });
     bindButton("disconnect-tesla", "Disconnect Tesla", () => disconnectProvider("tesla"), { required: false });
+    bindButton("refresh-tesla", "Refresh Tesla", () => refreshTesla(true), { required: false });
 
     const strategyDialog = document.getElementById("strategy-dialog");
     bindButton(
@@ -139,6 +140,7 @@ try {
     setScriptStatus("UI script loaded");
     showToast("UI script loaded");
     refreshConnections();
+    refreshTesla(false);
   }
 
   function renderPlan(data) {
@@ -268,6 +270,34 @@ try {
         );
       })
       .catch((error) => showFetchError("Could not refresh provider connections", error));
+  }
+
+  function refreshTesla(forceRefresh) {
+    showToast(forceRefresh ? "Refreshing Tesla..." : "Loading Tesla status...");
+    return fetchJson(forceRefresh ? "/api/tesla/refresh" : "/api/tesla/state", {
+      method: forceRefresh ? "POST" : "GET",
+    })
+      .then((response) => response.json())
+      .then((data) => {
+        renderTeslaStatus(data);
+        if (forceRefresh) {
+          showToast("Tesla status refreshed");
+        }
+      })
+      .catch((error) => showFetchError("Could not refresh Tesla status", error));
+  }
+
+  function renderTeslaStatus(data) {
+    const state = data.vehicleState || {};
+    setText("tesla-status", data.connected ? "Connected" : "Not connected");
+    setText("tesla-summary", data.warning || (data.connected ? "Tesla connected in read-only mode." : "Tesla token not configured - using demo vehicle data"));
+    setText("tesla-vehicle-name", "Vehicle: " + (data.vehicleName || state.vehicleName || "Unknown"));
+    const batterySoc = data.batterySocPercent ?? state.batterySocPercent ?? null;
+    setText("tesla-battery", "Battery: " + (batterySoc === null ? "Unknown" : batterySoc + "%"));
+    setText("tesla-plugged-in", "Plugged in: " + yesNo(data.pluggedIn ?? state.pluggedIn));
+    setText("tesla-charging-state", "Charging: " + (data.chargingState || state.chargingState || "Unknown"));
+    setText("tesla-online-state", "Vehicle state: " + (data.vehicleOnlineState || state.vehicleOnlineState || "Unknown"));
+    setText("tesla-last-update", "Last update: " + formatTime(data.lastUpdatedAt || state.lastUpdatedAt || state.observedAt));
   }
 
   function renderConnection(connection, provider) {
@@ -439,6 +469,12 @@ try {
 
   function providerName(provider) {
     return provider === "tibber" ? "Tibber" : "Tesla";
+  }
+
+  function yesNo(value) {
+    if (value === true) return "yes";
+    if (value === false) return "no";
+    return "Unknown";
   }
 
   let toastTimer;

@@ -8,8 +8,14 @@ import type { TeslaTransport } from "../../src/providers/tesla/TeslaClient.js";
 describe("TeslaVehicleStateProvider", () => {
   it("maps read-only charge state from vehicle_data", async () => {
     const provider = new TeslaVehicleStateProvider(new FakeTeslaTransport({
-      "/api/1/vehicles/vehicle-1/vehicle_data": {
+      "/vehicles": {
+        response: [{ id_s: "vehicle-2", display_name: "Model Y", state: "online" }],
+      },
+      "/vehicles/vehicle-2/vehicle_data": {
         response: {
+          id_s: "vehicle-2",
+          display_name: "Model Y",
+          state: "online",
           charge_state: {
             battery_level: 64,
             charging_state: "Stopped",
@@ -17,7 +23,7 @@ describe("TeslaVehicleStateProvider", () => {
           },
         },
       },
-    }), { vehicleId: "vehicle-1" });
+    }), { vehicleId: "vehicle-2" });
 
     await expect(provider.getVehicleState()).resolves.toMatchObject({
       batterySocPercent: 64,
@@ -25,15 +31,18 @@ describe("TeslaVehicleStateProvider", () => {
       chargingState: "Stopped",
       estimatedRangeKm: 291.6,
       source: "tesla",
+      vehicleName: "Model Y",
+      vehicleId: "vehicle-2",
+      vehicleOnlineState: "online",
     });
   });
 
   it("selects the first vehicle when no vehicle id is configured", async () => {
     const provider = new TeslaVehicleStateProvider(new FakeTeslaTransport({
-      "/api/1/vehicles": {
-        response: [{ id_s: "vehicle-1" }],
+      "/vehicles": {
+        response: [{ id_s: "vehicle-3", state: "online" }],
       },
-      "/api/1/vehicles/vehicle-1/vehicle_data": {
+      "/vehicles/vehicle-3/vehicle_data": {
         response: {
           charge_state: {
             battery_level: 80,
@@ -51,12 +60,49 @@ describe("TeslaVehicleStateProvider", () => {
 
   it("returns null when charge state is missing", async () => {
     const provider = new TeslaVehicleStateProvider(new FakeTeslaTransport({
-      "/api/1/vehicles/vehicle-1/vehicle_data": {
+      "/vehicles": {
+        response: [{ id_s: "vehicle-4", state: "online" }],
+      },
+      "/vehicles/vehicle-4/vehicle_data": {
         response: {},
       },
-    }), { vehicleId: "vehicle-1" });
+    }), { vehicleId: "vehicle-4" });
 
-    await expect(provider.getVehicleState()).resolves.toBeNull();
+    await expect(provider.getVehicleState()).resolves.toMatchObject({
+      vehicleId: "vehicle-4",
+      batterySocPercent: null,
+    });
+  });
+
+  it("does not wake sleeping vehicles and returns last known state when cached", async () => {
+    const provider = new TeslaVehicleStateProvider(new FakeTeslaTransport({
+      "/vehicles": {
+        response: [{ id_s: "vehicle-5", state: "online" }],
+      },
+      "/vehicles/vehicle-5/vehicle_data": {
+        response: {
+          id_s: "vehicle-5",
+          state: "online",
+          charge_state: {
+            battery_level: 71,
+            charging_state: "Disconnected",
+          },
+        },
+      },
+    }));
+
+    await expect(provider.getVehicleState()).resolves.toMatchObject({ batterySocPercent: 71 });
+
+    const sleepingProvider = new TeslaVehicleStateProvider(new FakeTeslaTransport({
+      "/vehicles": {
+        response: [{ id_s: "vehicle-5", state: "asleep" }],
+      },
+    }));
+
+    await expect(sleepingProvider.getVehicleState({ forceRefresh: true })).resolves.toMatchObject({
+      batterySocPercent: 71,
+      vehicleOnlineState: "asleep",
+    });
   });
 });
 

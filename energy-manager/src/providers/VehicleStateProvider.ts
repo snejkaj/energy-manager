@@ -15,10 +15,14 @@ export interface VehicleState {
   pluggedIn: boolean | null;
   chargingState: string | null;
   estimatedRangeKm: number | null;
+  vehicleName?: string | null;
+  vehicleId?: string | null;
+  vehicleOnlineState?: string | null;
+  lastUpdatedAt?: string | null;
   source: string;
   observedAt: string;
 }
 
 export interface VehicleStateProvider extends Provider<VehicleStateProviderCapabilities> {
-  getVehicleState(): Promise<VehicleState | null>;
+  getVehicleState(options?: { forceRefresh?: boolean }): Promise<VehicleState | null>;
 }

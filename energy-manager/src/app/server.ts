@@ -104,6 +104,27 @@ export function startServer(): void {
       return;
     }
 
+    if (request.method === "GET" && path === "/api/tesla/vehicles") {
+      void getTeslaVehiclesResponse(config, authService)
+        .then((payload) => writeJson(response, 200, payload))
+        .catch((error: unknown) => writeJson(response, 200, createTeslaErrorResponse(config, error)));
+      return;
+    }
+
+    if (request.method === "GET" && path === "/api/tesla/state") {
+      void getTeslaStateResponse(config, authService, false)
+        .then((payload) => writeJson(response, 200, payload))
+        .catch((error: unknown) => writeJson(response, 200, createTeslaErrorResponse(config, error)));
+      return;
+    }
+
+    if (request.method === "POST" && path === "/api/tesla/refresh") {
+      void getTeslaStateResponse(config, authService, true)
+        .then((payload) => writeJson(response, 200, payload))
+        .catch((error: unknown) => writeJson(response, 200, createTeslaErrorResponse(config, error)));
+      return;
+    }
+
     if (request.method === "GET" && path === "/app.js") {
       const url = new URL(request.url ?? "/", "http://localhost");
       logAppJsRequest(request, response, url);
@@ -226,7 +247,10 @@ function createProviderRegistry(
   const teslaAccessToken = authService?.getAccessToken("tesla") ?? config.teslaAccessToken;
   if (teslaAccessToken !== null) {
     registry.registerVehicleStateProvider(
-      new TeslaVehicleStateProvider(new TeslaClient(teslaAccessToken), { vehicleId: config.teslaVehicleId }),
+      new TeslaVehicleStateProvider(new TeslaClient(teslaAccessToken, config.teslaRegion), {
+        vehicleId: config.teslaVehicleId,
+        region: config.teslaRegion,
+      }),
     );
   }
 
@@ -434,14 +458,7 @@ function createDemoPlanResponse(
     dailyFeedback: analyzeOutcomes(dailyOutcomes),
     onboarding: createOnboardingResponse(onboarding),
     status: createStatusResponse(config, onboarding, emergencyOverrideActive),
-    vehicleState: {
-      batterySocPercent: 42,
-      pluggedIn: true,
-      chargingState: "Stopped",
-      estimatedRangeKm: 238,
-      source: "demo",
-      observedAt: "2026-05-05T00:00:00.000Z",
-    },
+    vehicleState: createDemoVehicleState(),
     pricingContext: {
       currentPrice: 0.88,
       currency: "SEK",
@@ -452,6 +469,21 @@ function createDemoPlanResponse(
     providerWarnings: ["Demo mode is using realistic sample car and price data."],
     emergencyOverrideActive,
     plan,
+  };
+}
+
+function createDemoVehicleState(): VehicleState {
+  return {
+    batterySocPercent: 42,
+    pluggedIn: true,
+    chargingState: "Stopped",
+    estimatedRangeKm: 238,
+    vehicleName: "Demo Tesla",
+    vehicleId: "demo-vehicle",
+    vehicleOnlineState: "online",
+    lastUpdatedAt: "2026-05-05T00:00:00.000Z",
+    source: "demo",
+    observedAt: "2026-05-05T00:00:00.000Z",
   };
 }
 
@@ -477,6 +509,87 @@ async function getVehicleState(
     warnings.push(`Tesla data could not be loaded: ${error instanceof Error ? error.message : "Unknown error"}`);
     return null;
   }
+}
+
+async function getTeslaVehiclesResponse(config: AppConfig, authService: ProviderAuthService) {
+  const provider = createTeslaVehicleProvider(config, authService);
+  if (provider === null) {
+    return {
+      connected: false,
+      warning: "Tesla token not configured - using demo vehicle data",
+      vehicles: [],
+    };
+  }
+
+  const vehicles = await provider.getVehicles();
+  return {
+    connected: true,
+    warning: null,
+    vehicles: vehicles.map((vehicle) => ({
+      vehicleId: vehicle.id_s ?? vehicle.vin ?? String(vehicle.id ?? ""),
+      vehicleName: vehicle.display_name ?? null,
+      vehicleOnlineState: vehicle.state ?? null,
+    })),
+  };
+}
+
+async function getTeslaStateResponse(config: AppConfig, authService: ProviderAuthService, forceRefresh: boolean) {
+  const provider = createTeslaVehicleProvider(config, authService);
+  if (provider === null) {
+    return createTeslaDemoStatus("Tesla token not configured - using demo vehicle data");
+  }
+
+  const state = await provider.getVehicleState({ forceRefresh });
+  if (state === null) {
+    return createTeslaDemoStatus("Tesla data is unavailable - using demo vehicle data");
+  }
+
+  return createTeslaStatusFromState(true, state, null);
+}
+
+function createTeslaVehicleProvider(config: AppConfig, authService: ProviderAuthService): TeslaVehicleStateProvider | null {
+  const accessToken = authService.getAccessToken("tesla") ?? config.teslaAccessToken;
+  if (accessToken === null) {
+    return null;
+  }
+
+  return new TeslaVehicleStateProvider(new TeslaClient(accessToken, config.teslaRegion), {
+    vehicleId: config.teslaVehicleId,
+    region: config.teslaRegion,
+  });
+}
+
+function createTeslaErrorResponse(config: AppConfig, error: unknown) {
+  logger.error("Tesla", `Tesla data could not be loaded: ${error instanceof Error ? error.message : "Unknown error"}`);
+  return createTeslaDemoStatus(
+    config.teslaAccessToken === null
+      ? "Tesla token not configured - using demo vehicle data"
+      : `Tesla data could not be loaded: ${error instanceof Error ? error.message : "Unknown error"}`,
+  );
+}
+
+function createTeslaDemoStatus(warning: string | null) {
+  return createTeslaStatusFromState(false, createDemoVehicleState(), warning);
+}
+
+function createTeslaStatusFromState(connected: boolean, state: VehicleState, warning: string | null) {
+  const asleepWarning =
+    state.vehicleOnlineState !== null && state.vehicleOnlineState !== undefined && state.vehicleOnlineState !== "online"
+      ? "Vehicle asleep - using last known state"
+      : null;
+
+  return {
+    connected,
+    warning: warning ?? asleepWarning,
+    vehicleState: state,
+    vehicleName: state.vehicleName ?? null,
+    vehicleId: state.vehicleId ?? null,
+    batterySocPercent: state.batterySocPercent,
+    pluggedIn: state.pluggedIn,
+    chargingState: state.chargingState,
+    vehicleOnlineState: state.vehicleOnlineState ?? null,
+    lastUpdatedAt: state.lastUpdatedAt ?? state.observedAt,
+  };
 }
 
 async function getHomeTelemetry(
@@ -1245,9 +1358,16 @@ function renderHtml(): string {
             <span class="label">Tesla</span>
             <span class="value" id="tesla-status">Not connected</span>
             <p class="subtle" id="tesla-summary">Uses demo car data until connected.</p>
+            <p class="subtle" id="tesla-vehicle-name">Vehicle: Demo Tesla</p>
+            <p class="subtle" id="tesla-battery">Battery: 42%</p>
+            <p class="subtle" id="tesla-plugged-in">Plugged in: yes</p>
+            <p class="subtle" id="tesla-charging-state">Charging: Stopped</p>
+            <p class="subtle" id="tesla-online-state">Vehicle state: online</p>
+            <p class="subtle" id="tesla-last-update">Last update: demo</p>
             <div class="connect-row">
               <button type="button" id="connect-tesla">Connect Tesla</button>
               <button type="button" id="disconnect-tesla">Disconnect Tesla</button>
+              <button type="button" id="refresh-tesla">Refresh Tesla</button>
             </div>
           </div>
         </div>

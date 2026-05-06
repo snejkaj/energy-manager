@@ -154,7 +154,7 @@ export class ProviderAuthService {
         ? null
         : provider === "tibber"
           ? "Tibber token not configured"
-          : `${labelProvider(provider)} is not connected.`,
+          : "Tesla token not configured - using demo vehicle data",
       connectedAt: token?.connectedAt ?? null,
     };
   }

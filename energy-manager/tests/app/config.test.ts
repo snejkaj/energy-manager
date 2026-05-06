@@ -56,6 +56,7 @@ describe("loadConfig", () => {
     expect(config.homeTelemetryProvider).toBe("mock-home-telemetry");
     expect(config.vehicleStateProvider).toBe("mock-vehicle-state");
     expect(config.weatherForecastProvider).toBe("mock-weather-forecast");
+    expect(config.teslaRegion).toBe("eu");
   });
 
   it("uses live Tesla and weather providers only when enough config exists", () => {
@@ -86,5 +87,13 @@ describe("loadConfig", () => {
       "charger power is not a valid number. The default value is used.",
       "Departure time is not valid. 08:00 is used.",
     ]));
+  });
+
+  it("accepts Tesla US region and defaults unknown regions to EU", () => {
+    expect(loadConfig({ TESLA_REGION: "us" }).teslaRegion).toBe("us");
+
+    const config = loadConfig({ TESLA_REGION: "moon" });
+    expect(config.teslaRegion).toBe("eu");
+    expect(config.setupNotes).toContain("Tesla region was not recognized. EU is used.");
   });
 });

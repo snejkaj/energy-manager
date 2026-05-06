@@ -7,6 +7,7 @@ export interface AppConfig {
   tibberHomeId: string | null;
   teslaAccessToken: string | null;
   teslaVehicleId: string | null;
+  teslaRegion: "eu" | "us";
   tibberOAuthClientId: string | null;
   tibberOAuthClientSecret: string | null;
   tibberOAuthRedirectUri: string | null;
@@ -46,6 +47,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     tibberHomeId: emptyToNull(env.TIBBER_HOME_ID),
     teslaAccessToken: emptyToNull(env.TESLA_ACCESS_TOKEN),
     teslaVehicleId: emptyToNull(env.TESLA_VEHICLE_ID),
+    teslaRegion: parseTeslaRegion(env.TESLA_REGION, setupNotes),
     tibberOAuthClientId: emptyToNull(env.TIBBER_OAUTH_CLIENT_ID),
     tibberOAuthClientSecret: emptyToNull(env.TIBBER_OAUTH_CLIENT_SECRET),
     tibberOAuthRedirectUri: emptyToNull(env.TIBBER_OAUTH_REDIRECT_URI),
@@ -87,6 +89,16 @@ function parseUserMode(value: string | undefined, setupNotes: string[]): AppConf
 
   setupNotes.push("Charging strategy was not recognized. Safe mode is used.");
   return "safe";
+}
+
+function parseTeslaRegion(value: string | undefined, setupNotes: string[]): AppConfig["teslaRegion"] {
+  const region = value === undefined || value.trim() === "" ? "eu" : value.trim().toLowerCase();
+  if (region === "eu" || region === "us") {
+    return region;
+  }
+
+  setupNotes.push("Tesla region was not recognized. EU is used.");
+  return "eu";
 }
 
 function defaultElectricityPriceProvider(env: NodeJS.ProcessEnv): string {

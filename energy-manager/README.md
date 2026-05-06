@@ -156,6 +156,7 @@ Initial Home Assistant options include:
 - optional Tibber home selection, only for accounts with multiple homes
 - Tesla access token
 - Tesla vehicle ID
+- Tesla region, defaulting to `eu`
 - Tibber OAuth client ID, secret, and redirect URI
 - Tesla OAuth client ID, secret, and redirect URI
 - optional token encryption key
@@ -187,6 +188,7 @@ tibber_access_token: ""
 tibber_home_id: ""
 tesla_access_token: ""
 tesla_vehicle_id: ""
+tesla_region: "eu"
 tibber_oauth_client_id: ""
 tibber_oauth_client_secret: ""
 tibber_oauth_redirect_uri: ""
@@ -204,6 +206,8 @@ charging_efficiency: "0.9"
 ```
 
 When `TIBBER_ACCESS_TOKEN` is set, the app uses Tibber as the default electricity price provider and fetches today/tomorrow prices with a personal access token. Without the token, electricity and telemetry default to mock providers for local development. Charger control defaults to planning-only mode.
+
+When `TESLA_ACCESS_TOKEN` is set, the app uses Tesla Fleet API in read-only mode to fetch battery state, plugged-in state, charging state, range, vehicle name, and online/asleep/offline state. The app does not wake the vehicle and does not send vehicle commands. `TESLA_REGION` defaults to `eu`; set it to `us` only for North America.
 
 Most users do not need `tibber_home_id`.
 

@@ -72,6 +72,7 @@ export TIBBER_ACCESS_TOKEN
 export TIBBER_HOME_ID
 export TESLA_ACCESS_TOKEN="$(config_value 'tesla_access_token')"
 export TESLA_VEHICLE_ID="$(config_value 'tesla_vehicle_id')"
+export TESLA_REGION="$(config_value 'tesla_region')"
 export TIBBER_OAUTH_CLIENT_ID="$(config_value 'tibber_oauth_client_id')"
 export TIBBER_OAUTH_CLIENT_SECRET="$(config_value 'tibber_oauth_client_secret')"
 export TIBBER_OAUTH_REDIRECT_URI="$(config_value 'tibber_oauth_redirect_uri')"
