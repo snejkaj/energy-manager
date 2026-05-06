@@ -4,6 +4,13 @@ export interface TibberHomeSelection {
   homeId?: string | null;
 }
 
+export interface TibberHomeSelectionInfo {
+  selectedHomeName: string;
+  availableHomeNames: string[];
+  multipleHomesFound: boolean;
+  manualSelectionConfigured: boolean;
+}
+
 export interface TibberPriceEntry {
   startsAt: string;
   total: number;
@@ -21,6 +28,10 @@ export interface TibberPriceData {
 
 export interface TibberHomePriceNode {
   id: string;
+  appNickname?: string | null;
+  address?: {
+    address1?: string | null;
+  } | null;
   currentSubscription: {
     priceInfo: {
       current?: TibberPriceEntry | null;
@@ -38,6 +49,10 @@ export interface TibberTelemetryData {
 
 export interface TibberHomeTelemetryNode {
   id: string;
+  appNickname?: string | null;
+  address?: {
+    address1?: string | null;
+  } | null;
   features?: {
     realTimeConsumptionEnabled?: boolean | null;
   } | null;

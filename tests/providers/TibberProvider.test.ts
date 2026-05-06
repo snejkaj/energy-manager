@@ -86,6 +86,58 @@ describe("TibberPriceProvider", () => {
       currency: "SEK",
     });
   });
+
+  it("tracks friendly home names when multiple Tibber homes are available", async () => {
+    const provider = new TibberPriceProvider(
+      new FakeTransport({
+        viewer: {
+          homes: [
+            {
+              id: "home-1",
+              appNickname: "Villa",
+              currentSubscription: {
+                priceInfo: {
+                  current: null,
+                  today: [
+                    {
+                      startsAt: "2026-05-05T00:00:00+02:00",
+                      total: 1.25,
+                      currency: "SEK",
+                      level: "NORMAL",
+                    },
+                  ],
+                  tomorrow: [],
+                },
+              },
+            },
+            {
+              id: "home-2",
+              appNickname: "Cabin",
+              currentSubscription: {
+                priceInfo: {
+                  current: null,
+                  today: [],
+                  tomorrow: [],
+                },
+              },
+            },
+          ],
+        },
+      }),
+    );
+
+    await provider.getPrices({
+      startsAt: "2026-05-04T22:00:00.000Z",
+      endsAt: "2026-05-04T23:00:00.000Z",
+    });
+
+    expect(provider.getLastHomeSelectionInfo()).toEqual({
+      selectedHomeName: "Villa",
+      availableHomeNames: ["Villa", "Cabin"],
+      multipleHomesFound: true,
+      manualSelectionConfigured: false,
+    });
+  });
 });
 
 describe("TibberHomeTelemetryProvider", () => {

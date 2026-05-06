@@ -169,6 +169,14 @@ try {
     document.getElementById("tibber-last-fetch").textContent =
       "Last successful fetch: " +
       (data.tibber.lastSuccessfulFetch ? formatTime(data.tibber.lastSuccessfulFetch) : "never");
+    if (data.tibber.multipleHomesFound && data.tibber.availableHomeNames.length > 0) {
+      document.getElementById("tibber-summary").textContent =
+        "Multiple Tibber homes found: " +
+        data.tibber.availableHomeNames.join(", ") +
+        ". Using " +
+        (data.tibber.selectedHomeName || data.tibber.availableHomeNames[0]) +
+        " for now.";
+    }
     document.getElementById("priority").textContent = strategyName(data.userMode.mode);
     document.getElementById("setup-mode").textContent = data.status.chargerStatus;
     document.getElementById("demo-mode").style.display = data.onboarding.demoMode ? "block" : "none";
@@ -264,12 +272,15 @@ try {
   function renderConnection(connection, provider) {
     if (!connection) return;
     if (provider === "tibber") {
+      const summary = document.getElementById("tibber-summary");
       document.getElementById("tibber-status").textContent = connection.connected
         ? "Tibber connected"
         : "Tibber token not configured";
-      document.getElementById("tibber-summary").textContent = connection.connected
-        ? connection.summary || "Using real Tibber price data."
-        : "For now, add TIBBER_ACCESS_TOKEN in configuration.";
+      if (!summary.textContent?.startsWith("Multiple Tibber homes found")) {
+        summary.textContent = connection.connected
+          ? connection.summary || "Using real Tibber price data."
+          : "For now, add TIBBER_ACCESS_TOKEN in configuration.";
+      }
       return;
     }
 

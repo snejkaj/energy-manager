@@ -118,7 +118,7 @@ Optional:
 
 - Set `DATABASE_URL` to a PostgreSQL connection string to save data.
 - Add `TIBBER_ACCESS_TOKEN` to fetch real electricity prices.
-- Add `TIBBER_HOME_ID` only when the Tibber account has multiple homes and you do not want to use the first one.
+- Most users do not need `tibber_home_id`. If Tibber returns one home, the app selects it automatically.
 - Add `TESLA_ACCESS_TOKEN` to show live car battery level and plugged-in state.
 - Connect Tesla from the web UI using OAuth. Tibber OAuth is not used yet.
 - Keep `CHARGER_PROVIDER=planning-only` until real charger control is added.
@@ -142,7 +142,7 @@ Initial Home Assistant options include:
 - weather latitude and longitude
 - optional solar panel tilt and azimuth
 - Tibber access token
-- Tibber home ID
+- optional Tibber home selection, only for accounts with multiple homes
 - Tesla access token
 - Tesla vehicle ID
 - Tibber OAuth client ID, secret, and redirect URI
@@ -157,6 +157,25 @@ Initial Home Assistant options include:
 - charging efficiency
 
 When `TIBBER_ACCESS_TOKEN` is set, the app uses Tibber as the default electricity price provider and fetches today/tomorrow prices with a personal access token. Without the token, electricity and telemetry default to mock providers for local development. Charger control defaults to planning-only mode.
+
+Most users do not need `tibber_home_id`.
+
+Home Assistant add-on configuration example:
+
+```yaml
+tibber_access_token: "paste-your-token-here"
+tibber_home_id: ""
+```
+
+If Tibber returns exactly one home, the app selects it automatically. If Tibber returns multiple homes, the UI shows `Multiple Tibber homes found`, lists the available home names, and uses the first home for now.
+
+Manual home selection is only needed when you have multiple Tibber homes and want a specific one. Add it like this in the Home Assistant add-on configuration:
+
+```yaml
+tibber_home_id: "96a14971-525a-4420-aae9-e5aedaa129ff"
+```
+
+You can find the value in Tibber's developer/API explorer by running a `viewer { homes { id appNickname } }` query and copying the `id` for the home you want.
 
 ## User Modes
 
@@ -197,6 +216,7 @@ curl -i http://localhost:3000/app.js
 curl http://localhost:3000/debug/static
 curl http://localhost:3000/debug/app-js
 curl http://localhost:3000/debug/html
+curl http://localhost:3000/debug/config
 curl http://localhost:3000/api/status
 curl http://localhost:3000/api/plan
 curl -X POST http://localhost:3000/api/emergency-charge
@@ -209,6 +229,7 @@ Expected result:
 - `/debug/static` shows where static files are served from and whether `app.js` exists
 - `/debug/app-js` shows the resolved `app.js` path and the first part of the served file
 - `/debug/html` shows the exact generated HTML, including the inline boot script and `/app.js` script tag
+- `/debug/config` shows whether Tibber token and home selection are configured, without exposing secrets
 - `/api/status` shows `demoMode: true` and `Planning only`
 - the web UI shows a charging plan
 - the web UI footer changes from `UI script not loaded` to `UI script loaded`
@@ -284,7 +305,7 @@ TIBBER_ACCESS_TOKEN=
 TIBBER_HOME_ID=
 ```
 
-The `Connect Tibber` button currently explains that the token must be added in configuration. Full Tibber OAuth is intentionally not active yet.
+Most users should leave `TIBBER_HOME_ID` empty. The `Connect Tibber` button currently explains that the token must be added in configuration. Full Tibber OAuth is intentionally not active yet.
 
 In demo mode, OAuth tokens are stored in memory only and disappear when the add-on restarts. Set `DATABASE_URL` and `TOKEN_ENCRYPTION_KEY` before using persistent token storage later.
 

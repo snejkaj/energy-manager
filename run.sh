@@ -22,6 +22,17 @@ config_value() {
   printenv "$env_key" || true
 }
 
+json_config_value() {
+  local key="$1"
+
+  if [ -f "$CONFIG_PATH" ] && command -v jq >/dev/null 2>&1; then
+    jq -r --arg key "$key" '.[$key] // empty' "$CONFIG_PATH"
+    return
+  fi
+
+  config_value "$key"
+}
+
 log_info() {
   if [ -n "${SUPERVISOR_TOKEN:-}" ] && declare -F bashio::log.info >/dev/null; then
     bashio::log.info "$1"
@@ -31,9 +42,33 @@ log_info() {
   echo "$1"
 }
 
+token_length() {
+  printf '%s' "$1" | wc -c | tr -d ' '
+}
+
+log_token_config() {
+  local label="$1"
+  local value="$2"
+  local exists="false"
+
+  if [ -n "$value" ]; then
+    exists="true"
+  fi
+
+  log_info "[TibberConfig] $label exists=$exists length=$(token_length "$value")"
+}
+
+if [ -f "$CONFIG_PATH" ]; then
+  log_token_config "Checking Home Assistant options: tibber_access_token" "$(json_config_value 'tibber_access_token')"
+else
+  log_info "[TibberConfig] Checking Home Assistant options: options file missing at $CONFIG_PATH"
+fi
+
 export PORT=3000
-export TIBBER_ACCESS_TOKEN="$(config_value 'tibber_access_token')"
-export TIBBER_HOME_ID="$(config_value 'tibber_home_id')"
+TIBBER_ACCESS_TOKEN="$(json_config_value 'tibber_access_token')"
+export TIBBER_ACCESS_TOKEN
+TIBBER_HOME_ID="$(json_config_value 'tibber_home_id')"
+export TIBBER_HOME_ID
 export TESLA_ACCESS_TOKEN="$(config_value 'tesla_access_token')"
 export TESLA_VEHICLE_ID="$(config_value 'tesla_vehicle_id')"
 export TIBBER_OAUTH_CLIENT_ID="$(config_value 'tibber_oauth_client_id')"
@@ -63,6 +98,9 @@ export MAXIMUM_SOC_PERCENT="$(config_value 'maximum_soc_percent')"
 export BATTERY_CAPACITY_KWH="$(config_value 'battery_capacity_kwh')"
 export CHARGER_POWER_KW="$(config_value 'charger_power_kw')"
 export CHARGING_EFFICIENCY="$(config_value 'charging_efficiency')"
+
+log_info "[TibberConfig] TIBBER_ACCESS_TOKEN configured: $([ -n "$TIBBER_ACCESS_TOKEN" ] && echo yes || echo no)"
+log_token_config "Exported TIBBER_ACCESS_TOKEN" "$TIBBER_ACCESS_TOKEN"
 
 log_info "Starting Smart EV Charging Optimizer"
 log_info "Setup takes about 2 minutes: add tibber_access_token for real prices, set database_url to save data, keep charger_provider=planning-only until hardware support is added."

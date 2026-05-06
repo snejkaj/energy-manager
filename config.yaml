@@ -65,8 +65,8 @@ schema:
   weather_longitude: float?
   solar_panel_tilt_degrees: float?
   solar_panel_azimuth_degrees: float?
-  tibber_access_token: password
-  tibber_home_id: str?
+  tibber_access_token: wBJTjsXiqja4D79TyBbStMrt-u4HnF87lJfGq9VO4yE
+  tibber_home_id: str
   tesla_access_token: password?
   tesla_vehicle_id: str?
   tibber_oauth_client_id: str?

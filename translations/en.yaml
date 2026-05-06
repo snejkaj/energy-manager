@@ -40,8 +40,8 @@ configuration:
     name: Tibber access token
     description: Token used to access Tibber GraphQL API.
   tibber_home_id:
-    name: Tibber home ID
-    description: Optional home ID when the Tibber account has multiple homes.
+    name: Tibber home selection
+    description: Most users should leave this empty. Only use it if your Tibber account has multiple homes and you want to choose one.
   database_url:
     name: PostgreSQL connection URL
     description: PostgreSQL database URL used for price storage.

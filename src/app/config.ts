@@ -39,7 +39,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   return {
     port: parsePort(env.PORT),
     databaseUrl: emptyToNull(env.DATABASE_URL),
-    tibberAccessToken: emptyToNull(env.TIBBER_ACCESS_TOKEN),
+    tibberAccessToken: emptyToNull(trimEnv(env.TIBBER_ACCESS_TOKEN)),
     tibberHomeId: emptyToNull(env.TIBBER_HOME_ID),
     teslaAccessToken: emptyToNull(env.TESLA_ACCESS_TOKEN),
     teslaVehicleId: emptyToNull(env.TESLA_VEHICLE_ID),
@@ -140,6 +140,10 @@ function emptyToNull(value: string | undefined): string | null {
   }
 
   return value;
+}
+
+function trimEnv(value: string | undefined): string | undefined {
+  return value === undefined ? undefined : value.trim();
 }
 
 function parseOptionalNumber(value: string | undefined): number | null {

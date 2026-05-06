@@ -20,6 +20,7 @@ import { TeslaClient } from "../providers/tesla/TeslaClient.js";
 import { TeslaVehicleStateProvider } from "../providers/tesla/TeslaProvider.js";
 import { TibberGraphQLClient } from "../providers/tibber/TibberClient.js";
 import { TibberHomeTelemetryProvider, TibberPriceProvider } from "../providers/tibber/TibberProvider.js";
+import type { TibberHomeSelectionInfo } from "../providers/tibber/TibberTypes.js";
 import type { VehicleState } from "../providers/VehicleStateProvider.js";
 import { ProviderAuthService, type AuthProviderId } from "./auth/ProviderAuthService.js";
 import { loadConfig, type AppConfig } from "./config.js";
@@ -69,6 +70,7 @@ export function startServer(): void {
   const config = loadConfig();
   const onboarding = createStartupOnboarding(config);
   logStartupDiagnostics(config);
+  logTibberConfigDiagnostics(config);
   logStartupOnboarding([...onboarding.setupWarnings, ...onboarding.setupMessages]);
   assertStartupIsReady(onboarding);
 
@@ -116,6 +118,11 @@ export function startServer(): void {
 
     if (request.method === "GET" && path === "/debug/app-js") {
       writeJson(response, 200, createAppJsDiagnostics());
+      return;
+    }
+
+    if (request.method === "GET" && path === "/debug/config") {
+      writeJson(response, 200, createConfigDiagnostics(config));
       return;
     }
 
@@ -272,6 +279,10 @@ interface TibberStatus {
   connected: boolean;
   status: string;
   lastSuccessfulFetch: string | null;
+  multipleHomesFound: boolean;
+  selectedHomeName: string | null;
+  availableHomeNames: string[];
+  manualSelectionConfigured: boolean;
 }
 
 async function createPlanResponse(
@@ -380,7 +391,11 @@ async function createPlanResponse(
     status: createStatusResponse(config, onboarding, emergencyOverrideActive),
     vehicleState,
     pricingContext: createPricingContext(currentPrice, priceProvider.metadata.displayName),
-    tibber: createTibberStatus(config, currentPrice === null ? providerPrices[0] ?? null : currentPrice),
+    tibber: createTibberStatus(
+      config,
+      currentPrice === null ? providerPrices[0] ?? null : currentPrice,
+      getTibberHomeSelectionInfo(priceProvider),
+    ),
     providerWarnings,
     emergencyOverrideActive,
     plan,
@@ -432,7 +447,7 @@ function createDemoPlanResponse(
       source: "Demo prices",
       description: "Electricity is cheap overnight.",
     },
-    tibber: createTibberStatus(config, null),
+    tibber: createTibberStatus(config, null, null),
     providerWarnings: ["Demo mode is using realistic sample car and price data."],
     emergencyOverrideActive,
     plan,
@@ -527,20 +542,45 @@ function createPricingContext(currentPrice: PriceInterval | null, source: string
   };
 }
 
-function createTibberStatus(config: AppConfig, currentPrice: PriceInterval | null): TibberStatus {
+function createTibberStatus(
+  config: AppConfig,
+  currentPrice: PriceInterval | null,
+  homeSelectionInfo: TibberHomeSelectionInfo | null,
+): TibberStatus {
   if (config.tibberAccessToken === null) {
     return {
       connected: false,
       status: "Tibber token not configured",
       lastSuccessfulFetch: null,
+      multipleHomesFound: false,
+      selectedHomeName: null,
+      availableHomeNames: [],
+      manualSelectionConfigured: false,
     };
   }
 
+  const multipleHomesStatus =
+    homeSelectionInfo?.multipleHomesFound === true && !homeSelectionInfo.manualSelectionConfigured
+      ? "Multiple Tibber homes found"
+      : null;
+
   return {
     connected: currentPrice !== null,
-    status: currentPrice === null ? "Tibber connected, waiting for price data" : "Tibber connected",
+    status:
+      multipleHomesStatus ??
+      (currentPrice === null ? "Tibber connected, waiting for price data" : "Tibber connected"),
     lastSuccessfulFetch: currentPrice === null ? null : new Date().toISOString(),
+    multipleHomesFound: homeSelectionInfo?.multipleHomesFound ?? false,
+    selectedHomeName: homeSelectionInfo?.selectedHomeName ?? null,
+    availableHomeNames: homeSelectionInfo?.availableHomeNames ?? [],
+    manualSelectionConfigured: homeSelectionInfo?.manualSelectionConfigured ?? false,
   };
+}
+
+function getTibberHomeSelectionInfo(
+  provider: NonNullable<ReturnType<ProviderRegistry["getElectricityPriceProvider"]>>,
+): TibberHomeSelectionInfo | null {
+  return provider instanceof TibberPriceProvider ? provider.getLastHomeSelectionInfo() : null;
 }
 
 function createPriceQuery(target: ChargingTarget): { startsAt: string; endsAt: string } {
@@ -735,6 +775,26 @@ function logStartupDiagnostics(config: AppConfig): void {
   if (!diagnostics.appJsExists) {
     logger.error("Static", "app.js missing from served static directory");
   }
+}
+
+function logTibberConfigDiagnostics(config: AppConfig): void {
+  logger.info(
+    "TibberConfig",
+    `Backend sees TIBBER_ACCESS_TOKEN exists=${config.tibberAccessToken !== null} length=${config.tibberAccessToken?.length ?? 0}`,
+  );
+  logger.info("TibberConfig", "Final env variable used: TIBBER_ACCESS_TOKEN");
+  logger.info(
+    "TibberConfig",
+    `Backend sees TIBBER_HOME_ID exists=${config.tibberHomeId !== null} length=${config.tibberHomeId?.length ?? 0}`,
+  );
+}
+
+function createConfigDiagnostics(config: AppConfig) {
+  return {
+    tibberAccessTokenConfigured: config.tibberAccessToken !== null,
+    tibberAccessTokenLength: config.tibberAccessToken?.length ?? 0,
+    tibberHomeIdConfigured: config.tibberHomeId !== null,
+  };
 }
 
 function resolveStaticDirectory(): string {

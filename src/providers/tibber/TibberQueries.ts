@@ -5,6 +5,10 @@ export const TIBBER_PRICE_QUERY = `
     viewer {
       homes {
         id
+        appNickname
+        address {
+          address1
+        }
         currentSubscription {
           priceInfo {
             current {
@@ -43,6 +47,10 @@ export const TIBBER_TELEMETRY_QUERY = `
     viewer {
       homes {
         id
+        appNickname
+        address {
+          address1
+        }
         features {
           realTimeConsumptionEnabled
         }

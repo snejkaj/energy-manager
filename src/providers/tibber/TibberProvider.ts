@@ -9,6 +9,7 @@ import { TIBBER_PRICE_QUERY, TIBBER_TELEMETRY_QUERY } from "./TibberQueries.js";
 import type {
   TibberHomePriceNode,
   TibberHomeSelection,
+  TibberHomeSelectionInfo,
   TibberHomeTelemetryNode,
   TibberPriceData,
   TibberPriceEntry,
@@ -16,6 +17,8 @@ import type {
 } from "./TibberTypes.js";
 
 export class TibberPriceProvider implements ElectricityPriceProvider {
+  private lastHomeSelectionInfo: TibberHomeSelectionInfo | null = null;
+
   metadata = {
     id: "tibber",
     displayName: "Tibber",
@@ -55,6 +58,7 @@ export class TibberPriceProvider implements ElectricityPriceProvider {
     logger.info("Tibber", "Tibber price fetch start");
     const data = await this.transport.execute<TibberPriceData>(TIBBER_PRICE_QUERY);
     const home = selectHome(data.viewer.homes, this.selection.homeId);
+    this.lastHomeSelectionInfo = createHomeSelectionInfo(data.viewer.homes, home, this.selection.homeId);
     logger.info("Tibber", `Selected Tibber home ID: ${home.id}`);
     const priceInfo = home.currentSubscription?.priceInfo;
 
@@ -76,6 +80,7 @@ export class TibberPriceProvider implements ElectricityPriceProvider {
     logger.info("Tibber", "Tibber current price fetch start");
     const data = await this.transport.execute<TibberPriceData>(TIBBER_PRICE_QUERY);
     const home = selectHome(data.viewer.homes, this.selection.homeId);
+    this.lastHomeSelectionInfo = createHomeSelectionInfo(data.viewer.homes, home, this.selection.homeId);
     logger.info("Tibber", `Selected Tibber home ID: ${home.id}`);
     const current = home.currentSubscription?.priceInfo.current;
 
@@ -99,6 +104,10 @@ export class TibberPriceProvider implements ElectricityPriceProvider {
     }
 
     return [...priceInfo.today, ...priceInfo.tomorrow].map((entry) => ({ ...entry, homeId: home.id }));
+  }
+
+  getLastHomeSelectionInfo(): TibberHomeSelectionInfo | null {
+    return this.lastHomeSelectionInfo;
   }
 }
 
@@ -201,6 +210,36 @@ function mapTelemetry(home: TibberHomeTelemetryNode): HomeTelemetry | null {
     consumptionKw,
     productionKw,
   };
+}
+
+function createHomeSelectionInfo<THome extends { id: string; appNickname?: string | null; address?: { address1?: string | null } | null }>(
+  homes: THome[],
+  selectedHome: THome,
+  configuredHomeId?: string | null,
+): TibberHomeSelectionInfo {
+  return {
+    selectedHomeName: displayHomeName(selectedHome, homes.indexOf(selectedHome)),
+    availableHomeNames: homes.map(displayHomeName),
+    multipleHomesFound: homes.length > 1,
+    manualSelectionConfigured: configuredHomeId !== undefined && configuredHomeId !== null && configuredHomeId !== "",
+  };
+}
+
+function displayHomeName<THome extends { appNickname?: string | null; address?: { address1?: string | null } | null }>(
+  home: THome,
+  index: number,
+): string {
+  const nickname = home.appNickname?.trim();
+  if (nickname !== undefined && nickname !== "") {
+    return nickname;
+  }
+
+  const address = home.address?.address1?.trim();
+  if (address !== undefined && address !== "") {
+    return address;
+  }
+
+  return `Home ${index + 1}`;
 }
 
 function wattsToKw(value: number | null | undefined): number | undefined {
