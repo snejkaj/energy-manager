@@ -5,6 +5,8 @@ import type { AppConfig } from "./config.js";
 export interface StartupOnboarding {
   blockingErrors: string[];
   setupMessages: string[];
+  setupWarnings: string[];
+  demoMode: boolean;
   planningOnlyMode: boolean;
 }
 
@@ -18,11 +20,13 @@ export class StartupConfigurationError extends Error {
 export function createStartupOnboarding(config: AppConfig): StartupOnboarding {
   const blockingErrors: string[] = [];
   const setupMessages: string[] = [];
+  const setupWarnings: string[] = [];
+  const demoMode = config.databaseUrl === null;
   const planningOnlyMode = config.chargerProvider === null || config.chargerProvider === "planning-only";
 
-  if (config.databaseUrl === null) {
-    blockingErrors.push(
-      "Database is not configured. Set DATABASE_URL to a PostgreSQL connection string before starting the add-on.",
+  if (demoMode) {
+    setupWarnings.push(
+      "Demo mode - no data is saved. Set DATABASE_URL to enable PostgreSQL storage.",
     );
   }
 
@@ -41,6 +45,8 @@ export function createStartupOnboarding(config: AppConfig): StartupOnboarding {
   return {
     blockingErrors,
     setupMessages,
+    setupWarnings,
+    demoMode,
     planningOnlyMode,
   };
 }

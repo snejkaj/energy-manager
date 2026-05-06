@@ -23,17 +23,18 @@ describe("startup onboarding", () => {
     expect(onboarding.blockingErrors).toEqual([]);
   });
 
-  it("returns a clear blocking error when database config is missing", () => {
+  it("uses demo mode when database config is missing", () => {
     // Requirements: ONB-002, CFG-006
     const onboarding = createStartupOnboarding(loadConfig({
       TIBBER_ACCESS_TOKEN: "token",
       CHARGER_PROVIDER: "mock-charger",
     }));
 
-    expect(onboarding.blockingErrors).toEqual([
-      "Database is not configured. Set DATABASE_URL to a PostgreSQL connection string before starting the add-on.",
+    expect(onboarding.demoMode).toBe(true);
+    expect(onboarding.setupWarnings).toEqual([
+      "Demo mode - no data is saved. Set DATABASE_URL to enable PostgreSQL storage.",
     ]);
-    expect(() => assertStartupIsReady(onboarding)).toThrow(StartupConfigurationError);
+    expect(() => assertStartupIsReady(onboarding)).not.toThrow(StartupConfigurationError);
   });
 
   it("uses planning only mode when no charger provider is configured", () => {

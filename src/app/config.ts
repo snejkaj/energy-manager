@@ -17,6 +17,12 @@ export interface AppConfig {
   weatherLongitude: number | null;
   solarPanelTiltDegrees: number | null;
   solarPanelAzimuthDegrees: number | null;
+  departureTime: string;
+  minimumSocPercent: number;
+  maximumSocPercent: number;
+  batteryCapacityKwh: number;
+  chargerPowerKw: number;
+  chargingEfficiency: number;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -25,10 +31,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     databaseUrl: emptyToNull(env.DATABASE_URL),
     tibberAccessToken: emptyToNull(env.TIBBER_ACCESS_TOKEN),
     tibberHomeId: emptyToNull(env.TIBBER_HOME_ID),
-    electricityPriceProvider: env.ELECTRICITY_PRICE_PROVIDER ?? "mock-electricity-price",
-    homeTelemetryProvider: env.HOME_TELEMETRY_PROVIDER ?? "mock-home-telemetry",
+    electricityPriceProvider: emptyToNull(env.ELECTRICITY_PRICE_PROVIDER) ?? "mock-electricity-price",
+    homeTelemetryProvider: emptyToNull(env.HOME_TELEMETRY_PROVIDER) ?? "mock-home-telemetry",
     chargerProvider: emptyToNull(env.CHARGER_PROVIDER) ?? "planning-only",
-    weatherForecastProvider: env.WEATHER_FORECAST_PROVIDER ?? "open-meteo",
+    weatherForecastProvider: emptyToNull(env.WEATHER_FORECAST_PROVIDER) ?? "open-meteo",
     userMode: parseUserMode(env.USER_MODE),
     socBufferPercent: parseNumberWithDefault(env.SOC_BUFFER_PERCENT, 15),
     startEarlyMinutes: parseNumberWithDefault(env.START_EARLY_MINUTES, 90),
@@ -37,6 +43,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     weatherLongitude: parseOptionalNumber(env.WEATHER_LONGITUDE),
     solarPanelTiltDegrees: parseOptionalNumber(env.SOLAR_PANEL_TILT_DEGREES),
     solarPanelAzimuthDegrees: parseOptionalNumber(env.SOLAR_PANEL_AZIMUTH_DEGREES),
+    departureTime: parseDepartureTime(env.DEPARTURE_TIME),
+    minimumSocPercent: parseNumberWithDefault(env.MINIMUM_SOC_PERCENT, 65),
+    maximumSocPercent: parseNumberWithDefault(env.MAXIMUM_SOC_PERCENT, 80),
+    batteryCapacityKwh: parseNumberWithDefault(env.BATTERY_CAPACITY_KWH, 75),
+    chargerPowerKw: parseNumberWithDefault(env.CHARGER_POWER_KW, 11),
+    chargingEfficiency: parseNumberWithDefault(env.CHARGING_EFFICIENCY, 0.9),
   };
 }
 
@@ -113,4 +125,13 @@ function parseOptionalNumber(value: string | undefined): number | null {
   }
 
   return numberValue;
+}
+
+function parseDepartureTime(value: string | undefined): string {
+  const time = value === undefined || value.trim() === "" || value.trim() === "null" ? "08:00" : value.trim();
+  if (!/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(time)) {
+    throw new Error("DEPARTURE_TIME must use HH:mm format.");
+  }
+
+  return `2026-05-05T${time}:00.000Z`;
 }

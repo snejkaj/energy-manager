@@ -1,20 +1,22 @@
 // Requirements: PRD-002, PRD-006, WEB-001, WEB-004, WEB-005, WEB-006, WEB-007, WEB-008, WEB-009, WEB-011, WEB-012, WEB-013, WEB-014, WEB-015, WEB-016, WEB-017, WEB-018, FDB-001, FDB-002, FDB-003, ONB-001, ONB-002, ONB-003, ONB-004, UX-003, UX-004, UX-005, UX-006, UX-007, UX-101, UX-105, EMG-001, OPS-001, OPS-005, ARC-004
 
-import { createServer } from "node:http";
+import { createServer, type ServerResponse } from "node:http";
 
 import { calculateChargingPlan } from "../charging/ChargingOptimizer.js";
+import { EmergencyChargingService } from "../charging/EmergencyChargingService.js";
 import { estimateCompletionForTarget } from "../charging/CompletionEstimator.js";
-import type { ChargingTarget, PriceInterval } from "../charging/types.js";
+import type { ChargingPlan, ChargingTarget, PriceInterval } from "../charging/types.js";
 import { applyUserModePolicy } from "../charging/UserModePolicy.js";
 import type { DecisionOutcomeRecord } from "../db/types/persistenceTypes.js";
 import { analyzeOutcomes } from "../feedback/DailyFeedbackService.js";
+import { MockChargerProvider } from "../providers/mock/MockChargerProvider.js";
 import { MockElectricityPriceProvider } from "../providers/mock/MockElectricityPriceProvider.js";
 import { ProviderRegistry } from "../providers/ProviderRegistry.js";
 import { OpenMeteoWeatherProvider } from "../providers/openMeteo/OpenMeteoWeatherProvider.js";
 import { TibberClient } from "../providers/tibber/TibberClient.js";
 import { TibberHomeTelemetryProvider, TibberPriceProvider } from "../providers/tibber/TibberProvider.js";
-import { loadConfig } from "./config.js";
-import { assertStartupIsReady, createStartupOnboarding } from "./onboarding.js";
+import { loadConfig, type AppConfig } from "./config.js";
+import { assertStartupIsReady, createStartupOnboarding, type StartupOnboarding } from "./onboarding.js";
 
 const prices: PriceInterval[] = [
   price("2026-05-05T00:00:00.000Z", 1.54),
@@ -26,16 +28,6 @@ const prices: PriceInterval[] = [
   price("2026-05-05T06:00:00.000Z", 2.1),
   price("2026-05-05T07:00:00.000Z", 2.42),
 ];
-
-const target: ChargingTarget = {
-  departureTime: "2026-05-05T08:00:00.000Z",
-  currentSocPercent: 42,
-  minSocPercent: 65,
-  maxSocPercent: 80,
-  batteryCapacityKwh: 75,
-  chargerPowerKw: 11,
-  chargingEfficiency: 0.9,
-};
 
 const dailyOutcomes: DecisionOutcomeRecord[] = [
   {
@@ -63,64 +55,50 @@ const dailyOutcomes: DecisionOutcomeRecord[] = [
 export function startServer(): void {
   const config = loadConfig();
   const onboarding = createStartupOnboarding(config);
-  logStartupOnboarding(onboarding.setupMessages);
+  logStartupOnboarding([...onboarding.setupWarnings, ...onboarding.setupMessages]);
   assertStartupIsReady(onboarding);
 
   const registry = createProviderRegistry(config);
+  let emergencyOverrideActive = false;
 
   const server = createServer((request, response) => {
-    if (request.url === "/api/plan") {
-      const priceProvider = registry.getElectricityPriceProvider(config.electricityPriceProvider);
-      if (priceProvider === null) {
-        response.writeHead(500, { "content-type": "application/json" });
-        response.end(JSON.stringify({ error: `Unknown electricity price provider: ${config.electricityPriceProvider}` }));
+    const path = new URL(request.url ?? "/", "http://localhost").pathname;
+
+    if (request.method === "GET" && path === "/health") {
+      writeJson(response, 200, {
+        ok: true,
+        demoMode: onboarding.demoMode,
+        planningOnlyMode: onboarding.planningOnlyMode,
+      });
+      return;
+    }
+
+    if (request.method === "GET" && path === "/api/status") {
+      writeJson(response, 200, createStatusResponse(config, onboarding, emergencyOverrideActive));
+      return;
+    }
+
+    if (request.method === "GET" && path === "/api/plan") {
+      void createPlanResponse(config, onboarding, registry, emergencyOverrideActive)
+        .then((planResponse) => writeJson(response, 200, planResponse))
+        .catch((error: unknown) => writeJson(response, 500, {
+          error: error instanceof Error ? error.message : "Unknown error",
+        }));
+      return;
+    }
+
+    if (path === "/api/emergency-charge") {
+      if (request.method !== "POST") {
+        writeJson(response, 405, { error: "Use POST for emergency charging." });
         return;
       }
 
-      priceProvider
-        .getPrices({
-          startsAt: "2026-05-05T00:00:00.000Z",
-          endsAt: target.departureTime,
-        })
-        .then((providerPrices) => {
-          const modeResult = applyUserModePolicy({
-            target,
-            mode: config.userMode,
-          });
-          const plan = calculateChargingPlan(providerPrices, modeResult.target);
-          const completion = estimateCompletionForTarget(
-            plan.slots[0]?.startsAt ?? new Date().toISOString(),
-            modeResult.target,
-          );
-          const chargingWindow = {
-            startsAt: plan.slots[0]?.startsAt ?? null,
-            endsAt: plan.slots.at(-1)?.endsAt ?? null,
-          };
-          const nextTrip = {
-            title: "Next drive",
-            startsAt: target.departureTime,
-          };
-          response.writeHead(200, { "content-type": "application/json" });
-          response.end(JSON.stringify({
-            currentPrice: providerPrices[0],
-            prices: providerPrices,
-            userMode: modeResult.policy,
-            planReasons: modeResult.reason.slice(0, 4),
-            nextTrip,
-            chargingWindow,
-            completion,
-            dailyFeedback: analyzeOutcomes(dailyOutcomes),
-            onboarding: {
-              planningOnlyMode: onboarding.planningOnlyMode,
-              setupMessages: onboarding.setupMessages,
-            },
-            plan,
-          }));
-        })
-        .catch((error: unknown) => {
-          response.writeHead(500, { "content-type": "application/json" });
-          response.end(JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }));
-        });
+      emergencyOverrideActive = true;
+      void createPlanResponse(config, onboarding, registry, emergencyOverrideActive)
+        .then((planResponse) => writeJson(response, 200, planResponse))
+        .catch((error: unknown) => writeJson(response, 500, {
+          error: error instanceof Error ? error.message : "Unknown error",
+        }));
       return;
     }
 
@@ -137,6 +115,10 @@ export function startServer(): void {
 function createProviderRegistry(config: ReturnType<typeof loadConfig>): ProviderRegistry {
   const registry = new ProviderRegistry();
   registry.registerElectricityPriceProvider(new MockElectricityPriceProvider(prices));
+
+  if (config.chargerProvider === "mock-charger") {
+    registry.registerChargerProvider(new MockChargerProvider());
+  }
 
   if (config.tibberAccessToken !== null) {
     const tibberClient = new TibberClient(config.tibberAccessToken);
@@ -159,6 +141,144 @@ function createProviderRegistry(config: ReturnType<typeof loadConfig>): Provider
   return registry;
 }
 
+interface PlanResponse {
+  currentPrice: PriceInterval;
+  prices: PriceInterval[];
+  userMode: ReturnType<typeof applyUserModePolicy>["policy"];
+  planReasons: string[];
+  nextTrip: {
+    title: string;
+    startsAt: string;
+  };
+  chargingWindow: {
+    startsAt: string | null;
+    endsAt: string | null;
+  };
+  completion: ReturnType<typeof estimateCompletionForTarget>;
+  dailyFeedback: ReturnType<typeof analyzeOutcomes>;
+  onboarding: ReturnType<typeof createOnboardingResponse>;
+  status: ReturnType<typeof createStatusResponse>;
+  emergencyOverrideActive: boolean;
+  plan: ChargingPlan;
+}
+
+async function createPlanResponse(
+  config: AppConfig,
+  onboarding: StartupOnboarding,
+  registry: ProviderRegistry,
+  emergencyOverrideActive: boolean,
+): Promise<PlanResponse> {
+  const priceProvider = registry.getElectricityPriceProvider(config.electricityPriceProvider);
+  if (priceProvider === null) {
+    throw new Error(`Unknown electricity price provider: ${config.electricityPriceProvider}`);
+  }
+
+  const target = createChargingTarget(config);
+  const providerPrices = await priceProvider.getPrices({
+    startsAt: "2026-05-05T00:00:00.000Z",
+    endsAt: target.departureTime,
+  });
+  const modeResult = applyUserModePolicy({
+    target,
+    mode: config.userMode,
+  });
+  const normalPlan = calculateChargingPlan(providerPrices, modeResult.target);
+  const emergencyPlan = emergencyOverrideActive
+    ? new EmergencyChargingService().calculate({
+      now: providerPrices[0]?.startsAt ?? "2026-05-05T00:00:00.000Z",
+      target,
+      prices: providerPrices,
+    })
+    : null;
+  const plan = emergencyPlan === null ? normalPlan : emergencyPlan;
+  const planReasons = emergencyPlan === null
+    ? modeResult.reason.slice(0, 4)
+    : [...emergencyPlan.reason, "planning_only_no_hardware_control"].slice(0, 4);
+  const completion = emergencyPlan === null
+    ? estimateCompletionForTarget(plan.slots[0]?.startsAt ?? providerPrices[0]?.startsAt ?? "2026-05-05T00:00:00.000Z", modeResult.target)
+    : {
+      approximate: true as const,
+      estimatedCompletionTime: emergencyPlan.estimatedCompletionTime,
+      estimatedCompletionTimeMin: emergencyPlan.estimatedCompletionTimeMin,
+      estimatedCompletionTimeMax: emergencyPlan.estimatedCompletionTimeMax,
+      remainingEnergyKwh: emergencyPlan.plannedEnergyKwh + emergencyPlan.deficitKwh,
+      effectivePowerKw: target.chargerPowerKw,
+      timeNeededHours: (Date.parse(emergencyPlan.estimatedCompletionTime) - Date.parse(providerPrices[0]?.startsAt ?? "2026-05-05T00:00:00.000Z")) / 3_600_000,
+      reason: ["approximate_completion_estimate", "user_requested_100_percent", "planning_only_no_hardware_control"],
+    };
+
+  return {
+    currentPrice: providerPrices[0] ?? price("2026-05-05T00:00:00.000Z", 0),
+    prices: providerPrices,
+    userMode: modeResult.policy,
+    planReasons,
+    nextTrip: {
+      title: "Next drive",
+      startsAt: target.departureTime,
+    },
+    chargingWindow: {
+      startsAt: plan.slots[0]?.startsAt ?? null,
+      endsAt: plan.slots.at(-1)?.endsAt ?? null,
+    },
+    completion,
+    dailyFeedback: analyzeOutcomes(dailyOutcomes),
+    onboarding: createOnboardingResponse(onboarding),
+    status: createStatusResponse(config, onboarding, emergencyOverrideActive),
+    emergencyOverrideActive,
+    plan,
+  };
+}
+
+function createStatusResponse(
+  config: AppConfig,
+  onboarding: StartupOnboarding,
+  emergencyOverrideActive: boolean,
+) {
+  const chargerStatus = config.chargerProvider === "mock-charger" ? "Mock charger" : "Planning only";
+
+  return {
+    ok: true,
+    demoMode: onboarding.demoMode,
+    mode: labelMode(config.userMode),
+    chargerProvider: config.chargerProvider ?? "planning-only",
+    chargerStatus,
+    planningOnlyMode: onboarding.planningOnlyMode,
+    emergencyOverrideActive,
+    setupWarnings: onboarding.setupWarnings,
+    setupMessages: onboarding.setupMessages,
+  };
+}
+
+function createOnboardingResponse(onboarding: StartupOnboarding) {
+  return {
+    demoMode: onboarding.demoMode,
+    planningOnlyMode: onboarding.planningOnlyMode,
+    setupMessages: onboarding.setupMessages,
+    setupWarnings: onboarding.setupWarnings,
+  };
+}
+
+function createChargingTarget(config: AppConfig): ChargingTarget {
+  return {
+    departureTime: config.departureTime,
+    currentSocPercent: 42,
+    minSocPercent: config.minimumSocPercent,
+    maxSocPercent: config.maximumSocPercent,
+    batteryCapacityKwh: config.batteryCapacityKwh,
+    chargerPowerKw: config.chargerPowerKw,
+    chargingEfficiency: config.chargingEfficiency,
+  };
+}
+
+function writeJson(response: ServerResponse, statusCode: number, body: unknown): void {
+  response.writeHead(statusCode, { "content-type": "application/json" });
+  response.end(JSON.stringify(body));
+}
+
+function labelMode(mode: AppConfig["userMode"]): string {
+  return mode.charAt(0).toUpperCase() + mode.slice(1);
+}
+
 function renderHtml(): string {
   return `<!doctype html>
 <html lang="en">
@@ -177,6 +297,7 @@ function renderHtml(): string {
       --primary-dark: #0a4b38;
       --surface: #ffffff;
       --warn: #8a4b00;
+      --demo: #fff7df;
     }
 
     * { box-sizing: border-box; }
@@ -298,6 +419,17 @@ function renderHtml(): string {
       font-weight: 650;
     }
 
+    .demo {
+      display: none;
+      background: var(--demo);
+      border: 1px solid #e3c878;
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin-bottom: 12px;
+      color: #5b4200;
+      font-weight: 680;
+    }
+
     @media (min-width: 620px) {
       main { padding: 28px; }
       .ready { font-size: 42px; }
@@ -313,6 +445,7 @@ function renderHtml(): string {
     </header>
 
     <section class="hero" aria-live="polite">
+      <div class="demo" id="demo-mode">Demo mode - no data is saved</div>
       <p class="ready" id="ready">Car ready at ...</p>
       <p class="subtle" id="next-trip">Next trip loading</p>
 
@@ -395,7 +528,15 @@ function renderHtml(): string {
 
     fetch("/api/plan")
       .then((response) => response.json())
-      .then((data) => {
+      .then((data) => renderPlan(data));
+
+    document.getElementById("charge-100").addEventListener("click", () => {
+      fetch("/api/emergency-charge", { method: "POST" })
+        .then((response) => response.json())
+        .then((data) => renderPlan(data));
+    });
+
+    function renderPlan(data) {
         document.getElementById("ready").textContent = "Car ready at " + formatTime(data.completion.estimatedCompletionTimeMax);
         document.getElementById("next-trip").textContent = "Next trip: " + formatTime(data.nextTrip.startsAt);
         document.getElementById("window").textContent =
@@ -407,7 +548,9 @@ function renderHtml(): string {
         document.getElementById("mode").textContent =
           data.userMode.mode.charAt(0).toUpperCase() + data.userMode.mode.slice(1);
         document.getElementById("setup-mode").textContent =
-          data.onboarding.planningOnlyMode ? "Planning only" : "Ready";
+          data.status.chargerStatus;
+        document.getElementById("demo-mode").style.display =
+          data.onboarding.demoMode ? "block" : "none";
         document.getElementById("daily-ready").textContent =
           data.dailyFeedback.wasCarReady ? "Car was ready" : "Car was not ready";
         document.getElementById("daily-saved").textContent =
@@ -427,7 +570,10 @@ function renderHtml(): string {
           .slice(0, 4)
           .map((text) => "<li>" + text + "</li>")
           .join("");
-        document.getElementById("setup-notes").innerHTML = data.onboarding.setupMessages
+        document.getElementById("setup-notes").innerHTML = [
+          ...data.onboarding.setupWarnings,
+          ...data.onboarding.setupMessages,
+        ]
           .slice(0, 3)
           .map((text) => "<li>" + text + "</li>")
           .join("");
@@ -437,7 +583,7 @@ function renderHtml(): string {
           warning.style.display = "block";
           warning.textContent = "The car may not reach the target in time.";
         }
-      });
+      }
   </script>
 </body>
 </html>`;

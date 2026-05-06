@@ -106,12 +106,13 @@ All persisted timestamps are UTC instants.
 
 Required:
 
-1. Set `DATABASE_URL` to a PostgreSQL connection string.
-2. Start the add-on.
-3. Open the web UI and check the setup notes.
+1. Start the add-on with the default config.
+2. Open the web UI.
+3. Confirm the banner says `Demo mode - no data is saved`.
 
 Optional:
 
+- Set `DATABASE_URL` to a PostgreSQL connection string to save data.
 - Add `TIBBER_ACCESS_TOKEN` to fetch real electricity prices.
 - Keep `CHARGER_PROVIDER=planning-only` until real charger control is added.
 - Use `mock-charger` only for local development and tests.
@@ -119,7 +120,7 @@ Optional:
 Startup messages are intentionally plain:
 
 - missing Tibber token: the app explains how to connect Tibber and continues with mock prices
-- missing database URL: the app stops with a clear database setup error
+- missing database URL: the app starts in demo mode and does not save data
 - no charger provider: the app shows planning-only mode and does not control hardware
 
 ## Configuration
@@ -158,14 +159,80 @@ The selected mode and policy settings are stored in `user_preferences`.
 
 The project uses TypeScript and Vitest.
 
-Expected commands once Node.js is installed:
+Local verification:
 
 ```sh
 npm install
-cp .env.example .env
 npm test
+npm run typecheck
 npm run build
 ```
+
+Run locally in demo mode:
+
+```sh
+cp .env.example .env
+PORT=3000 node dist/src/app/server.js
+```
+
+Smoke checks:
+
+```sh
+curl http://localhost:3000/health
+curl http://localhost:3000/api/status
+curl http://localhost:3000/api/plan
+curl -X POST http://localhost:3000/api/emergency-charge
+```
+
+Expected result:
+
+- `/health` returns `ok: true`
+- `/api/status` shows `demoMode: true` and `Planning only`
+- the web UI shows a charging plan
+- pressing `Charge to 100%` updates the displayed plan but does not control hardware
+
+## Docker
+
+Build the add-on image:
+
+```sh
+docker build -t smart-ev-charging-optimizer .
+```
+
+Run the image locally:
+
+```sh
+docker run --rm -p 3000:3000 smart-ev-charging-optimizer
+```
+
+## Home Assistant Local Add-On
+
+To install as a local add-on:
+
+1. Copy this project folder into the Home Assistant `addons` directory.
+2. In Home Assistant, go to Settings -> Add-ons -> Add-on Store.
+3. Open the menu and select Reload.
+4. Install `Smart EV Charging Optimizer`.
+5. Keep the default config for demo mode.
+6. Start the add-on and open the ingress web UI.
+
+Minimum demo config:
+
+```yaml
+charger_provider: planning-only
+database_url: ""
+tibber_access_token: ""
+```
+
+To verify it works, the UI should show:
+
+- `Demo mode - no data is saved`
+- current mode, normally `Safe`
+- charger status, normally `Planning only`
+- next charging window
+- approximate completion time
+- reason list
+- `Charge to 100%`
 
 ## Requirements
 

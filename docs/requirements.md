@@ -157,7 +157,7 @@ Areas:
 | ID | Requirement |
 | --- | --- |
 | `ONB-001` | On startup, missing Tibber token must produce a setup message that explains how to enable real electricity prices. |
-| `ONB-002` | On startup, missing database configuration must produce a clear blocking error. |
+| `ONB-002` | On startup, missing database configuration must enable demo mode and clearly show that no data is saved. |
 | `ONB-003` | On startup, missing charger configuration must show "planning only mode" and must not imply hardware control. |
 | `ONB-004` | Setup documentation and startup messages must help a new user understand the required setup in under two minutes. |
 
