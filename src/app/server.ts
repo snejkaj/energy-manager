@@ -1,6 +1,9 @@
 // Requirements: PRD-002, PRD-006, WEB-001, WEB-004, WEB-005, WEB-006, WEB-007, WEB-008, WEB-009, WEB-011, WEB-012, WEB-013, WEB-014, WEB-015, WEB-016, WEB-017, WEB-018, FDB-001, FDB-002, FDB-003, ONB-001, ONB-002, ONB-003, ONB-004, UX-003, UX-004, UX-005, UX-006, UX-007, UX-101, UX-105, EMG-001, OPS-001, OPS-005, ARC-004
 
-import { createServer, type ServerResponse } from "node:http";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { calculateChargingPlan } from "../charging/ChargingOptimizer.js";
 import { EmergencyChargingService } from "../charging/EmergencyChargingService.js";
@@ -20,6 +23,7 @@ import { TibberHomeTelemetryProvider, TibberPriceProvider } from "../providers/t
 import type { VehicleState } from "../providers/VehicleStateProvider.js";
 import { ProviderAuthService, type AuthProviderId } from "./auth/ProviderAuthService.js";
 import { loadConfig, type AppConfig } from "./config.js";
+import { logger } from "./logger.js";
 import { assertStartupIsReady, createStartupOnboarding, type StartupOnboarding } from "./onboarding.js";
 
 const prices: PriceInterval[] = [
@@ -33,11 +37,10 @@ const prices: PriceInterval[] = [
   price("2026-05-05T07:00:00.000Z", 2.42),
 ];
 
-const demoReasons = [
-  "Cheap electricity",
-  "Typical weekday trip",
-  "Solar expected tomorrow",
-] as const;
+const demoReasons = ["Cheap electricity", "Typical weekday trip", "Solar expected tomorrow"] as const;
+
+const currentDir = dirname(fileURLToPath(import.meta.url));
+const staticDirectories = [join(currentDir, "../../public"), join(process.cwd(), "public")] as const;
 
 const dailyOutcomes: DecisionOutcomeRecord[] = [
   {
@@ -65,6 +68,7 @@ const dailyOutcomes: DecisionOutcomeRecord[] = [
 export function startServer(): void {
   const config = loadConfig();
   const onboarding = createStartupOnboarding(config);
+  logStartupDiagnostics(config);
   logStartupOnboarding([...onboarding.setupWarnings, ...onboarding.setupMessages]);
   assertStartupIsReady(onboarding);
 
@@ -72,6 +76,7 @@ export function startServer(): void {
   let emergencyOverrideActive = false;
 
   const server = createServer((request, response) => {
+    startRequestLogging(request, response);
     const path = new URL(request.url ?? "/", "http://localhost").pathname;
 
     if (request.method === "GET" && path === "/health") {
@@ -97,6 +102,28 @@ export function startServer(): void {
       return;
     }
 
+    if (request.method === "GET" && path === "/app.js") {
+      const url = new URL(request.url ?? "/", "http://localhost");
+      logAppJsRequest(request, response, url);
+      writeStaticAsset(response, "app.js", "application/javascript");
+      return;
+    }
+
+    if (request.method === "GET" && path === "/debug/static") {
+      writeJson(response, 200, createStaticDiagnostics());
+      return;
+    }
+
+    if (request.method === "GET" && path === "/debug/app-js") {
+      writeJson(response, 200, createAppJsDiagnostics());
+      return;
+    }
+
+    if (request.method === "GET" && path === "/debug/html") {
+      writeText(response, 200, renderHtml());
+      return;
+    }
+
     if (request.method === "POST" && (path === "/api/auth/tibber/start" || path === "/api/auth/tesla/start")) {
       writeJson(response, 200, authService.startAuth(getProviderFromPath(path)));
       return;
@@ -111,13 +138,19 @@ export function startServer(): void {
         return;
       }
 
-      void authService.handleCallback(getProviderFromPath(path), code, state)
+      void authService
+        .handleCallback(getProviderFromPath(path), code, state)
         .then(() => writeHtml(response, 200, "Connected. You can close this window and return to the add-on."))
-        .catch((error: unknown) => writeHtml(response, 400, error instanceof Error ? error.message : "Connection failed."));
+        .catch((error: unknown) =>
+          writeHtml(response, 400, error instanceof Error ? error.message : "Connection failed."),
+        );
       return;
     }
 
-    if (request.method === "POST" && (path === "/api/auth/tibber/disconnect" || path === "/api/auth/tesla/disconnect")) {
+    if (
+      request.method === "POST" &&
+      (path === "/api/auth/tibber/disconnect" || path === "/api/auth/tesla/disconnect")
+    ) {
       writeJson(response, 200, authService.disconnect(getProviderFromPath(path)));
       return;
     }
@@ -125,9 +158,11 @@ export function startServer(): void {
     if (request.method === "GET" && path === "/api/plan") {
       void createPlanResponse(config, onboarding, createProviderRegistry(config, authService), emergencyOverrideActive)
         .then((planResponse) => writeJson(response, 200, planResponse))
-        .catch((error: unknown) => writeJson(response, 500, {
-          error: error instanceof Error ? error.message : "Unknown error",
-        }));
+        .catch((error: unknown) =>
+          writeJson(response, 500, {
+            error: error instanceof Error ? error.message : "Unknown error",
+          }),
+        );
       return;
     }
 
@@ -140,23 +175,31 @@ export function startServer(): void {
       emergencyOverrideActive = true;
       void createPlanResponse(config, onboarding, createProviderRegistry(config, authService), emergencyOverrideActive)
         .then((planResponse) => writeJson(response, 200, planResponse))
-        .catch((error: unknown) => writeJson(response, 500, {
-          error: error instanceof Error ? error.message : "Unknown error",
-        }));
+        .catch((error: unknown) =>
+          writeJson(response, 500, {
+            error: error instanceof Error ? error.message : "Unknown error",
+          }),
+        );
       return;
     }
 
-    response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    logger.info("Server", `HTML catch-all handled ${request.method ?? "UNKNOWN"} ${path}`);
+    logger.info("Server", "Rendering main HTML with app.js script tag");
+    response.statusCode = 200;
+    response.setHeader("content-type", "text/html; charset=utf-8");
     response.end(renderHtml());
   });
 
   server.listen(config.port, () => {
-    console.log(`Smart EV Charging Optimizer listening on port ${config.port}`);
+    logger.info("Server", `Smart EV Charging Optimizer listening on port ${config.port}`);
   });
 }
 
 // Requirements: PRV-001, PRV-002, PRV-005, WEB-009
-function createProviderRegistry(config: ReturnType<typeof loadConfig>, authService?: ProviderAuthService): ProviderRegistry {
+function createProviderRegistry(
+  config: ReturnType<typeof loadConfig>,
+  authService?: ProviderAuthService,
+): ProviderRegistry {
   const registry = new ProviderRegistry();
   registry.registerElectricityPriceProvider(new MockElectricityPriceProvider(prices));
 
@@ -175,10 +218,7 @@ function createProviderRegistry(config: ReturnType<typeof loadConfig>, authServi
   const teslaAccessToken = authService?.getAccessToken("tesla") ?? config.teslaAccessToken;
   if (teslaAccessToken !== null) {
     registry.registerVehicleStateProvider(
-      new TeslaVehicleStateProvider(
-        new TeslaClient(teslaAccessToken),
-        { vehicleId: config.teslaVehicleId },
-      ),
+      new TeslaVehicleStateProvider(new TeslaClient(teslaAccessToken), { vehicleId: config.teslaVehicleId }),
     );
   }
 
@@ -259,32 +299,41 @@ async function createPlanResponse(
   const normalPlan = calculateChargingPlan(providerPrices, modeResult.target);
   const emergencyPlan = emergencyOverrideActive
     ? new EmergencyChargingService().calculate({
-      now: providerPrices[0]?.startsAt ?? "2026-05-05T00:00:00.000Z",
-      target: liveTarget,
-      prices: providerPrices,
-    })
+        now: providerPrices[0]?.startsAt ?? "2026-05-05T00:00:00.000Z",
+        target: liveTarget,
+        prices: providerPrices,
+      })
     : null;
   const plan = emergencyPlan === null ? normalPlan : emergencyPlan;
-  const planReasons = emergencyPlan === null
-    ? modeResult.reason.slice(0, 4)
-    : [...emergencyPlan.reason, "planning_only_no_hardware_control"].slice(0, 4);
-  const completion = emergencyPlan === null
-    ? estimateCompletionForTarget(
-      plan.slots[0]?.startsAt ?? providerPrices[0]?.startsAt ?? "2026-05-05T00:00:00.000Z",
-      modeResult.target,
-      undefined,
-      homeTelemetry,
-    )
-    : {
-      approximate: true as const,
-      estimatedCompletionTime: emergencyPlan.estimatedCompletionTime,
-      estimatedCompletionTimeMin: emergencyPlan.estimatedCompletionTimeMin,
-      estimatedCompletionTimeMax: emergencyPlan.estimatedCompletionTimeMax,
-      remainingEnergyKwh: emergencyPlan.plannedEnergyKwh + emergencyPlan.deficitKwh,
-      effectivePowerKw: liveTarget.chargerPowerKw,
-      timeNeededHours: (Date.parse(emergencyPlan.estimatedCompletionTime) - Date.parse(providerPrices[0]?.startsAt ?? "2026-05-05T00:00:00.000Z")) / 3_600_000,
-      reason: ["approximate_completion_estimate", "user_requested_100_percent", "planning_only_no_hardware_control"],
-    };
+  const planReasons =
+    emergencyPlan === null
+      ? modeResult.reason.slice(0, 4)
+      : [...emergencyPlan.reason, "planning_only_no_hardware_control"].slice(0, 4);
+  const completion =
+    emergencyPlan === null
+      ? estimateCompletionForTarget(
+          plan.slots[0]?.startsAt ?? providerPrices[0]?.startsAt ?? "2026-05-05T00:00:00.000Z",
+          modeResult.target,
+          undefined,
+          homeTelemetry,
+        )
+      : {
+          approximate: true as const,
+          estimatedCompletionTime: emergencyPlan.estimatedCompletionTime,
+          estimatedCompletionTimeMin: emergencyPlan.estimatedCompletionTimeMin,
+          estimatedCompletionTimeMax: emergencyPlan.estimatedCompletionTimeMax,
+          remainingEnergyKwh: emergencyPlan.plannedEnergyKwh + emergencyPlan.deficitKwh,
+          effectivePowerKw: liveTarget.chargerPowerKw,
+          timeNeededHours:
+            (Date.parse(emergencyPlan.estimatedCompletionTime) -
+              Date.parse(providerPrices[0]?.startsAt ?? "2026-05-05T00:00:00.000Z")) /
+            3_600_000,
+          reason: [
+            "approximate_completion_estimate",
+            "user_requested_100_percent",
+            "planning_only_no_hardware_control",
+          ],
+        };
 
   return {
     currentPrice: currentPrice ?? providerPrices[0] ?? price("2026-05-05T00:00:00.000Z", 0),
@@ -356,9 +405,7 @@ function createDemoPlanResponse(
       source: "Demo prices",
       description: "Electricity is cheap overnight.",
     },
-    providerWarnings: [
-      "Demo mode is using realistic sample car and price data.",
-    ],
+    providerWarnings: ["Demo mode is using realistic sample car and price data."],
     emergencyOverrideActive,
     plan,
   };
@@ -401,7 +448,9 @@ async function getHomeTelemetry(
   try {
     return await provider.getCurrentTelemetry();
   } catch (error) {
-    warnings.push(`Home consumption data could not be loaded: ${error instanceof Error ? error.message : "Unknown error"}`);
+    warnings.push(
+      `Home consumption data could not be loaded: ${error instanceof Error ? error.message : "Unknown error"}`,
+    );
     return null;
   }
 }
@@ -412,9 +461,11 @@ async function getCurrentPrice(
   warnings: string[],
 ): Promise<PriceInterval | null> {
   try {
-    return provider.getCurrentPrice === undefined ? providerPrices[0] ?? null : await provider.getCurrentPrice();
+    return provider.getCurrentPrice === undefined ? (providerPrices[0] ?? null) : await provider.getCurrentPrice();
   } catch (error) {
-    warnings.push(`Current electricity price could not be loaded: ${error instanceof Error ? error.message : "Unknown error"}`);
+    warnings.push(
+      `Current electricity price could not be loaded: ${error instanceof Error ? error.message : "Unknown error"}`,
+    );
     return providerPrices[0] ?? null;
   }
 }
@@ -518,14 +569,12 @@ function createDemoEmergencyCompletion(): ReturnType<typeof estimateCompletionFo
   };
 }
 
-function createStatusResponse(
-  config: AppConfig,
-  onboarding: StartupOnboarding,
-  emergencyOverrideActive: boolean,
-) {
+function createStatusResponse(config: AppConfig, onboarding: StartupOnboarding, emergencyOverrideActive: boolean) {
   const chargerStatus = onboarding.demoMode
     ? "Demo mode"
-    : config.chargerProvider === "mock-charger" ? "Mock charger" : "Planning only";
+    : config.chargerProvider === "mock-charger"
+      ? "Mock charger"
+      : "Planning only";
 
   return {
     ok: true,
@@ -562,12 +611,123 @@ function createChargingTarget(config: AppConfig): ChargingTarget {
 }
 
 function writeJson(response: ServerResponse, statusCode: number, body: unknown): void {
-  response.writeHead(statusCode, { "content-type": "application/json" });
+  response.statusCode = statusCode;
+  response.setHeader("content-type", "application/json");
   response.end(JSON.stringify(body));
 }
 
+function writeText(response: ServerResponse, statusCode: number, body: string): void {
+  response.statusCode = statusCode;
+  response.setHeader("content-type", "text/plain; charset=utf-8");
+  response.end(body);
+}
+
+interface StaticDiagnostics {
+  cwd: string;
+  staticDir: string;
+  staticDirExists: boolean;
+  files: string[];
+  appJsExists: boolean;
+  appJsPath: string;
+  appJsSizeBytes: number | null;
+}
+
+function startRequestLogging(request: IncomingMessage, response: ServerResponse): void {
+  const startedAt = Date.now();
+  const path = new URL(request.url ?? "/", "http://localhost").pathname;
+  response.on("finish", () => {
+    const contentType = response.getHeader("content-type");
+    const normalizedContentType = Array.isArray(contentType) ? contentType.join(",") : String(contentType ?? "none");
+    logger.info(
+      "HTTP",
+      `${request.method ?? "UNKNOWN"} ${path} -> ${response.statusCode} ${normalizedContentType} ${Date.now() - startedAt}ms`,
+    );
+  });
+}
+
+function createStaticDiagnostics(): StaticDiagnostics {
+  const staticDir = resolveStaticDirectory();
+  const appJsPath = join(staticDir, "app.js");
+  const staticDirExists = existsSync(staticDir);
+  const appJsExists = existsSync(appJsPath);
+  return {
+    cwd: process.cwd(),
+    staticDir,
+    staticDirExists,
+    files: listStaticFiles(staticDir),
+    appJsExists,
+    appJsPath,
+    appJsSizeBytes: appJsExists ? statSync(appJsPath).size : null,
+  };
+}
+
+function createAppJsDiagnostics(): StaticDiagnostics & { first500Characters: string | null } {
+  const diagnostics = createStaticDiagnostics();
+  return {
+    ...diagnostics,
+    first500Characters: diagnostics.appJsExists ? readFileSync(diagnostics.appJsPath, "utf8").slice(0, 500) : null,
+  };
+}
+
+function logStartupDiagnostics(config: AppConfig): void {
+  const diagnostics = createStaticDiagnostics();
+  logger.info("Server", `NODE_ENV=${process.env.NODE_ENV ?? "not set"}`);
+  logger.info("Server", `PORT=${config.port}`);
+  logger.info("Server", `working directory=${diagnostics.cwd}`);
+  logger.info("Static", `resolved static directory path=${diagnostics.staticDir}`);
+  logger.info("Static", `static directory exists=${diagnostics.staticDirExists}`);
+  logger.info("Static", `files inside static directory=${diagnostics.files.join(", ") || "none"}`);
+  logger.info("Static", `app.js exists=${diagnostics.appJsExists}`);
+  logger.info("Static", `app.js absolute path=${diagnostics.appJsPath}`);
+  if (!diagnostics.appJsExists) {
+    logger.error("Static", "app.js missing from served static directory");
+  }
+}
+
+function resolveStaticDirectory(): string {
+  return staticDirectories.find((staticDirectory) => existsSync(staticDirectory)) ?? staticDirectories[0];
+}
+
+function listStaticFiles(staticDirectory: string): string[] {
+  if (!existsSync(staticDirectory)) {
+    return [];
+  }
+
+  return readdirSync(staticDirectory).sort();
+}
+
+function logAppJsRequest(request: IncomingMessage, response: ServerResponse, url: URL): void {
+  response.on("finish", () => {
+    const contentType = response.getHeader("content-type");
+    const normalizedContentType = Array.isArray(contentType) ? contentType.join(",") : String(contentType ?? "none");
+    logger.info(
+      "Static",
+      `app.js request url=${request.url ?? "/app.js"} query=${url.search || "none"} content-type=${normalizedContentType} status=${response.statusCode}`,
+    );
+  });
+}
+
+function writeStaticAsset(response: ServerResponse, fileName: string, contentType: string): void {
+  const staticDirectory = resolveStaticDirectory();
+  const filePath = join(staticDirectory, fileName);
+  logger.info("Static", `serving ${fileName} from ${filePath}`);
+  if (existsSync(filePath)) {
+    response.statusCode = 200;
+    response.setHeader("cache-control", "no-store, no-cache, must-revalidate");
+    response.setHeader("content-type", contentType);
+    response.end(readFileSync(filePath));
+    return;
+  }
+
+  logger.error("Static", `${fileName} missing from served static directory`);
+  response.statusCode = 404;
+  response.setHeader("content-type", "text/plain; charset=utf-8");
+  response.end(`${fileName} not found`);
+}
+
 function writeHtml(response: ServerResponse, statusCode: number, message: string): void {
-  response.writeHead(statusCode, { "content-type": "text/html; charset=utf-8" });
+  response.statusCode = statusCode;
+  response.setHeader("content-type", "text/html; charset=utf-8");
   response.end(`<!doctype html><html lang="en"><body><p>${escapeHtml(message)}</p></body></html>`);
 }
 
@@ -576,10 +736,7 @@ function getProviderFromPath(path: string): AuthProviderId {
 }
 
 function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 function strategyLabel(mode: AppConfig["userMode"]): string {
@@ -750,6 +907,43 @@ function renderHtml(): string {
       font-weight: 680;
     }
 
+    .ui-error {
+      display: none;
+      margin: 12px 0 0;
+      border: 1px solid #f2b8b5;
+      background: #fceeee;
+      border-radius: 8px;
+      padding: 10px 12px;
+      color: #8c1d18;
+      font-weight: 680;
+    }
+
+    .boot-diagnostics {
+      margin-top: 14px;
+      border: 1px dashed #9ab0c5;
+      border-radius: 8px;
+      padding: 12px;
+      background: #f4f9fd;
+    }
+
+    .boot-diagnostics dl {
+      display: grid;
+      grid-template-columns: minmax(120px, 1fr) 2fr;
+      gap: 6px 10px;
+      margin: 8px 0 0;
+      font-size: 13px;
+    }
+
+    .boot-diagnostics dt {
+      color: var(--muted);
+    }
+
+    .boot-diagnostics dd {
+      margin: 0;
+      overflow-wrap: anywhere;
+      font-weight: 650;
+    }
+
     dialog {
       width: min(calc(100% - 32px), 420px);
       border: 1px solid var(--line);
@@ -785,6 +979,35 @@ function renderHtml(): string {
       margin-top: 10px;
     }
 
+    .toast {
+      position: fixed;
+      left: 16px;
+      right: 16px;
+      bottom: 16px;
+      max-width: 520px;
+      margin: 0 auto;
+      background: var(--text);
+      color: white;
+      border-radius: 8px;
+      padding: 12px 14px;
+      font-weight: 680;
+      opacity: 0;
+      transform: translateY(8px);
+      transition: opacity 150ms ease, transform 150ms ease;
+      pointer-events: none;
+    }
+
+    .toast.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    footer {
+      color: var(--muted);
+      font-size: 12px;
+      padding: 14px 0 0;
+    }
+
     @media (min-width: 620px) {
       main { padding: 28px; }
       .ready { font-size: 42px; }
@@ -801,6 +1024,23 @@ function renderHtml(): string {
 
     <section class="hero" aria-live="polite">
       <div class="demo" id="demo-mode">Demo mode - no data is saved</div>
+      <div class="ui-error" id="ui-error" role="alert"></div>
+      <div id="ui-fatal-error" style="display:none;color:red"></div>
+      <div class="boot-diagnostics" id="boot-diagnostics">
+        <span class="label">UI diagnostics</span>
+        <dl>
+          <dt>Script status</dt>
+          <dd id="diag-script-status">UI script not loaded</dd>
+          <dt>Buttons found</dt>
+          <dd id="diag-buttons-found">0</dd>
+          <dt>Handlers attached</dt>
+          <dd id="diag-handlers-attached">0</dd>
+          <dt>Last UI event</dt>
+          <dd id="diag-last-event">None</dd>
+          <dt>Last UI error</dt>
+          <dd id="diag-last-error">None</dd>
+        </dl>
+      </div>
       <p class="ready" id="ready">Ready by 07:00</p>
       <p class="subtle" id="next-trip">Typical weekday trip at 07:00</p>
 
@@ -897,9 +1137,10 @@ function renderHtml(): string {
       <div class="actions">
         <button class="primary" type="button" id="charge-100">Charge to 100%</button>
         <div class="secondary-row">
-          <button type="button">Change departure</button>
-          <button type="button">Charge now</button>
+          <button type="button" id="change-departure">Change departure</button>
+          <button type="button" id="charge-now">Charge now</button>
           <button type="button" id="change-strategy">Change strategy</button>
+          <button type="button" id="debug-test-button">Debug test</button>
         </div>
       </div>
     </section>
@@ -913,8 +1154,39 @@ function renderHtml(): string {
       </div>
       <button type="button" id="close-strategy">Close</button>
     </dialog>
+
+    <footer>
+      <div id="ui-script-status">UI script not loaded</div>
+    </footer>
   </main>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <script>
+    console.log("[UI BOOT] inline script running");
+    const status = document.getElementById("ui-script-status");
+    if (status) status.textContent = "Inline script loaded";
+  </script>
+  <script>
+window.addEventListener("error", function (event) {
+  console.log("[GLOBAL ERROR]", event.message, event.filename, event.lineno, event.colno);
+  const el = document.getElementById("diag-last-error");
+  if (el) el.textContent = event.message + " at " + event.filename + ":" + event.lineno;
+});
+</script>
+  <script src="/app.js?v=debug-3"></script>
+</body>
+</html>`;
+}
+
+function renderAppJs(): string {
+  return `
+  document.addEventListener("DOMContentLoaded", () => {
+    console.log("UI script loaded");
+    const scriptStatus = document.getElementById("ui-script-status");
+    if (scriptStatus) {
+      scriptStatus.textContent = "UI script loaded";
+    }
+    showToast("UI script loaded");
+
     const formatTime = (value) => {
       if (!value) return "Not planned";
       return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(new Date(value));
@@ -939,27 +1211,57 @@ function renderHtml(): string {
         .replace(/soc/g, "charge");
     };
 
-    fetch("/api/plan")
+    fetchJson("/api/plan")
       .then((response) => response.json())
-      .then((data) => renderPlan(data));
+      .then((data) => renderPlan(data))
+      .catch((error) => showFetchError("Initial plan load failed", error));
 
-    document.getElementById("charge-100").addEventListener("click", () => {
-      fetch("/api/emergency-charge", { method: "POST" })
+    bindButton("charge-100", "Charge to 100%", () => {
+      showToast("Updating plan to 100%...");
+      return fetchJson("/api/emergency-charge", { method: "POST" })
         .then((response) => response.json())
-        .then((data) => renderPlan(data));
+        .then((data) => {
+          renderPlan(data);
+          showToast("Plan updated: Charge to 100%");
+        })
+        .catch((error) => showFetchError("Could not update emergency plan", error));
     });
 
-    document.getElementById("connect-tibber").addEventListener("click", () => startProviderAuth("tibber"));
-    document.getElementById("connect-tesla").addEventListener("click", () => startProviderAuth("tesla"));
-    document.getElementById("disconnect-tibber").addEventListener("click", () => disconnectProvider("tibber"));
-    document.getElementById("disconnect-tesla").addEventListener("click", () => disconnectProvider("tesla"));
+    bindButton("charge-now", "Charge now", () => {
+      showToast("Charge now is a planning-only preview for now.");
+    });
+
+    bindButton("change-departure", "Change departure", () => {
+      showToast("Departure changes are coming soon.");
+    });
+
+    bindButton("connect-tibber", "Connect Tibber", () => startProviderAuth("tibber"));
+    bindButton("connect-tesla", "Connect Tesla", () => startProviderAuth("tesla"));
+    bindButton("disconnect-tibber", "Disconnect Tibber", () => disconnectProvider("tibber"));
+    bindButton("disconnect-tesla", "Disconnect Tesla", () => disconnectProvider("tesla"));
 
     const strategyDialog = document.getElementById("strategy-dialog");
-    document.getElementById("change-strategy").addEventListener("click", () => {
-      strategyDialog.showModal();
+    bindButton("change-strategy", "Change strategy", () => {
+      if (strategyDialog && typeof strategyDialog.showModal === "function") {
+        strategyDialog.showModal();
+        return;
+      }
+      showToast("Charging strategy options are available soon.");
     });
-    document.getElementById("close-strategy").addEventListener("click", () => {
-      strategyDialog.close();
+    bindButton("close-strategy", "Close strategy dialog", () => {
+      if (strategyDialog && typeof strategyDialog.close === "function") {
+        strategyDialog.close();
+      }
+    });
+    document.querySelectorAll("[data-strategy]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const label = button.textContent || "strategy";
+        console.log("Button clicked:", label);
+        showToast(label + " selected. Strategy changes are coming soon.");
+        if (strategyDialog && typeof strategyDialog.close === "function") {
+          strategyDialog.close();
+        }
+      });
     });
 
     function renderPlan(data) {
@@ -1030,12 +1332,13 @@ function renderHtml(): string {
     }
 
     function refreshConnections() {
-      fetch("/api/connections")
+      return fetchJson("/api/connections")
         .then((response) => response.json())
         .then((data) => {
           renderConnection(data.connections.find((connection) => connection.provider === "tibber"), "tibber");
           renderConnection(data.connections.find((connection) => connection.provider === "tesla"), "tesla");
-        });
+        })
+        .catch((error) => showFetchError("Could not refresh provider connections", error));
     }
 
     function renderConnection(connection, provider) {
@@ -1045,26 +1348,81 @@ function renderHtml(): string {
     }
 
     function startProviderAuth(provider) {
-      fetch("/api/auth/" + provider + "/start", { method: "POST" })
+      showToast("Opening " + providerName(provider) + " connection...");
+      return fetchJson("/api/auth/" + provider + "/start", { method: "POST" })
         .then((response) => response.json())
         .then((data) => {
           if (data.authorizationUrl) {
+            showToast("Redirecting to " + providerName(provider) + " login...");
             window.location.href = data.authorizationUrl;
             return;
           }
-          alert(data.message);
-        });
+          showToast(providerName(provider) + " login is not implemented yet");
+        })
+        .catch((error) => showFetchError(providerName(provider) + " login failed", error));
     }
 
     function disconnectProvider(provider) {
-      fetch("/api/auth/" + provider + "/disconnect", { method: "POST" })
-        .then(() => refreshConnections());
+      showToast("Disconnecting " + providerName(provider) + "...");
+      return fetchJson("/api/auth/" + provider + "/disconnect", { method: "POST" })
+        .then(() => refreshConnections())
+        .then(() => showToast(providerName(provider) + " disconnected"))
+        .catch((error) => showFetchError(providerName(provider) + " disconnect failed", error));
+    }
+
+    function bindButton(id, label, handler) {
+      const button = document.getElementById(id);
+      if (!button) {
+        console.error("Button not found:", id);
+        return;
+      }
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        console.log("Button clicked:", label);
+        try {
+          const result = handler();
+          if (result && typeof result.catch === "function") {
+            result.catch((error) => showFetchError(label + " failed", error));
+          }
+        } catch (error) {
+          console.error(label + " failed", error);
+          showToast(label + " failed");
+        }
+      });
+    }
+
+    function fetchJson(url, options) {
+      console.log("Fetch:", options && options.method ? options.method : "GET", url);
+      return fetch(url, options).then((response) => {
+        if (!response.ok) {
+          throw new Error(url + " failed with HTTP " + response.status);
+        }
+        return response;
+      });
+    }
+
+    function showFetchError(message, error) {
+      console.error(message, error);
+      showToast(message);
+    }
+
+    function providerName(provider) {
+      return provider === "tibber" ? "Tibber" : "Tesla";
+    }
+
+    let toastTimer;
+    function showToast(message) {
+      const toast = document.getElementById("toast");
+      if (!toast) return;
+      toast.textContent = message;
+      toast.classList.add("visible");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.classList.remove("visible"), 3000);
     }
 
     refreshConnections();
-  </script>
-</body>
-</html>`;
+  });
+  `;
 }
 
 function price(startsAt: string, total: number): PriceInterval {
@@ -1078,7 +1436,7 @@ function price(startsAt: string, total: number): PriceInterval {
 
 function logStartupOnboarding(messages: string[]): void {
   for (const message of messages) {
-    console.log(`[setup] ${message}`);
+    logger.info("Setup", message);
   }
 }
 

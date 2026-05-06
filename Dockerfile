@@ -17,6 +17,7 @@ WORKDIR /app
 
 COPY package.json package-lock.json tsconfig.json vitest.config.ts ./
 COPY src ./src
+COPY public ./public
 COPY run.sh /run.sh
 
 RUN npm ci && npm run build && chmod a+x /run.sh

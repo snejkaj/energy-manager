@@ -5,7 +5,11 @@
   "description": "Smart EV charging optimization for Home Assistant add-on packaging.",
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "npm run check:frontend && npm run lint && tsc -p tsconfig.json && npm run copy:static",
+    "check:frontend": "node --check public/app.js",
+    "copy:static": "mkdir -p dist/public && cp -R public/. dist/public/",
+    "format": "prettier --write \"public/**/*.js\" \"eslint.config.js\" \".prettierrc\"",
+    "lint": "eslint \"public/**/*.js\"",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
@@ -16,8 +20,12 @@
     "pg": "^8.11.5"
   },
   "devDependencies": {
-    "@types/pg": "^8.11.6",
+    "@eslint/js": "^10.0.1",
     "@types/node": "^20.12.12",
+    "@types/pg": "^8.11.6",
+    "eslint": "^10.3.0",
+    "globals": "^17.6.0",
+    "prettier": "^3.8.3",
     "typescript": "^5.4.5",
     "vitest": "^1.6.0"
   }

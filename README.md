@@ -40,6 +40,7 @@ Implemented so far:
 - daily feedback showing whether the car was ready, money saved, failures, and simple suggestions
 - startup onboarding for Tibber, database, and planning-only charger setup
 - realistic demo mode plan with charging window, completion time, and simple reasons
+- client-side UI button handling with visible feedback and safe planning-only actions
 - tests for charging decisions, completion time, emergency charging, and user modes
 
 Not implemented yet:
@@ -174,6 +175,7 @@ Local verification:
 
 ```sh
 npm install
+npm run check:frontend
 npm test
 npm run typecheck
 npm run build
@@ -190,6 +192,10 @@ Smoke checks:
 
 ```sh
 curl http://localhost:3000/health
+curl -i http://localhost:3000/app.js
+curl http://localhost:3000/debug/static
+curl http://localhost:3000/debug/app-js
+curl http://localhost:3000/debug/html
 curl http://localhost:3000/api/status
 curl http://localhost:3000/api/plan
 curl -X POST http://localhost:3000/api/emergency-charge
@@ -198,8 +204,15 @@ curl -X POST http://localhost:3000/api/emergency-charge
 Expected result:
 
 - `/health` returns `ok: true`
+- `/app.js?v=debug-3` returns JavaScript with HTTP 200, not HTML or 404
+- `/debug/static` shows where static files are served from and whether `app.js` exists
+- `/debug/app-js` shows the resolved `app.js` path and the first part of the served file
+- `/debug/html` shows the exact generated HTML, including the inline boot script and `/app.js` script tag
 - `/api/status` shows `demoMode: true` and `Planning only`
 - the web UI shows a charging plan
+- the web UI footer changes from `UI script not loaded` to `UI script loaded`
+- the UI diagnostics panel shows script status, buttons found, handlers attached, last event, and last error
+- the temporary `Debug test` button shows a toast and proves button binding
 - pressing `Charge to 100%` updates the displayed plan but does not control hardware
 
 ## Docker
@@ -246,6 +259,8 @@ To verify it works, the UI should show:
 - approximate completion time, for example `approx 06:30`
 - reason list, for example cheap electricity, typical weekday trip, and expected solar
 - `Charge to 100%`
+- a footer message saying `UI script loaded`
+- visible feedback when clicking the main buttons
 
 ## Provider Login
 
