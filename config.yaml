@@ -37,6 +37,13 @@ options:
   tibber_home_id: ""
   tesla_access_token: ""
   tesla_vehicle_id: ""
+  tibber_oauth_client_id: ""
+  tibber_oauth_client_secret: ""
+  tibber_oauth_redirect_uri: ""
+  tesla_oauth_client_id: ""
+  tesla_oauth_client_secret: ""
+  tesla_oauth_redirect_uri: ""
+  token_encryption_key: ""
   database_url: ""
   departure_time: "07:00"
   minimum_soc_percent: 60
@@ -62,6 +69,13 @@ schema:
   tibber_home_id: str?
   tesla_access_token: password?
   tesla_vehicle_id: str?
+  tibber_oauth_client_id: str?
+  tibber_oauth_client_secret: password?
+  tibber_oauth_redirect_uri: str?
+  tesla_oauth_client_id: str?
+  tesla_oauth_client_secret: password?
+  tesla_oauth_redirect_uri: str?
+  token_encryption_key: password?
   database_url: str
   departure_time: "match(^([01][0-9]|2[0-3]):[0-5][0-9]$)"
   minimum_soc_percent: "int(0,100)"

@@ -7,6 +7,13 @@ export interface AppConfig {
   tibberHomeId: string | null;
   teslaAccessToken: string | null;
   teslaVehicleId: string | null;
+  tibberOAuthClientId: string | null;
+  tibberOAuthClientSecret: string | null;
+  tibberOAuthRedirectUri: string | null;
+  teslaOAuthClientId: string | null;
+  teslaOAuthClientSecret: string | null;
+  teslaOAuthRedirectUri: string | null;
+  tokenEncryptionKey: string | null;
   electricityPriceProvider: string;
   homeTelemetryProvider: string;
   chargerProvider: string | null;
@@ -36,6 +43,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     tibberHomeId: emptyToNull(env.TIBBER_HOME_ID),
     teslaAccessToken: emptyToNull(env.TESLA_ACCESS_TOKEN),
     teslaVehicleId: emptyToNull(env.TESLA_VEHICLE_ID),
+    tibberOAuthClientId: emptyToNull(env.TIBBER_OAUTH_CLIENT_ID),
+    tibberOAuthClientSecret: emptyToNull(env.TIBBER_OAUTH_CLIENT_SECRET),
+    tibberOAuthRedirectUri: emptyToNull(env.TIBBER_OAUTH_REDIRECT_URI),
+    teslaOAuthClientId: emptyToNull(env.TESLA_OAUTH_CLIENT_ID),
+    teslaOAuthClientSecret: emptyToNull(env.TESLA_OAUTH_CLIENT_SECRET),
+    teslaOAuthRedirectUri: emptyToNull(env.TESLA_OAUTH_REDIRECT_URI),
+    tokenEncryptionKey: emptyToNull(env.TOKEN_ENCRYPTION_KEY),
     electricityPriceProvider: emptyToNull(env.ELECTRICITY_PRICE_PROVIDER) ?? "mock-electricity-price",
     homeTelemetryProvider: emptyToNull(env.HOME_TELEMETRY_PROVIDER) ?? "mock-home-telemetry",
     chargerProvider: emptyToNull(env.CHARGER_PROVIDER) ?? "planning-only",

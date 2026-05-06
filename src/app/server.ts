@@ -18,6 +18,7 @@ import { TeslaVehicleStateProvider } from "../providers/tesla/TeslaProvider.js";
 import { TibberClient } from "../providers/tibber/TibberClient.js";
 import { TibberHomeTelemetryProvider, TibberPriceProvider } from "../providers/tibber/TibberProvider.js";
 import type { VehicleState } from "../providers/VehicleStateProvider.js";
+import { ProviderAuthService, type AuthProviderId } from "./auth/ProviderAuthService.js";
 import { loadConfig, type AppConfig } from "./config.js";
 import { assertStartupIsReady, createStartupOnboarding, type StartupOnboarding } from "./onboarding.js";
 
@@ -67,7 +68,7 @@ export function startServer(): void {
   logStartupOnboarding([...onboarding.setupWarnings, ...onboarding.setupMessages]);
   assertStartupIsReady(onboarding);
 
-  const registry = createProviderRegistry(config);
+  const authService = new ProviderAuthService(config);
   let emergencyOverrideActive = false;
 
   const server = createServer((request, response) => {
@@ -87,8 +88,42 @@ export function startServer(): void {
       return;
     }
 
+    if (request.method === "GET" && path === "/api/connections") {
+      writeJson(response, 200, {
+        demoMode: onboarding.demoMode,
+        warning: onboarding.demoMode ? "Demo mode uses temporary in-memory tokens only." : null,
+        connections: authService.getConnectionStatuses(),
+      });
+      return;
+    }
+
+    if (request.method === "POST" && (path === "/api/auth/tibber/start" || path === "/api/auth/tesla/start")) {
+      writeJson(response, 200, authService.startAuth(getProviderFromPath(path)));
+      return;
+    }
+
+    if (request.method === "GET" && (path === "/api/auth/tibber/callback" || path === "/api/auth/tesla/callback")) {
+      const url = new URL(request.url ?? "/", "http://localhost");
+      const code = url.searchParams.get("code");
+      const state = url.searchParams.get("state");
+      if (code === null || state === null) {
+        writeHtml(response, 400, "Connection failed. Missing OAuth code or state.");
+        return;
+      }
+
+      void authService.handleCallback(getProviderFromPath(path), code, state)
+        .then(() => writeHtml(response, 200, "Connected. You can close this window and return to the add-on."))
+        .catch((error: unknown) => writeHtml(response, 400, error instanceof Error ? error.message : "Connection failed."));
+      return;
+    }
+
+    if (request.method === "POST" && (path === "/api/auth/tibber/disconnect" || path === "/api/auth/tesla/disconnect")) {
+      writeJson(response, 200, authService.disconnect(getProviderFromPath(path)));
+      return;
+    }
+
     if (request.method === "GET" && path === "/api/plan") {
-      void createPlanResponse(config, onboarding, registry, emergencyOverrideActive)
+      void createPlanResponse(config, onboarding, createProviderRegistry(config, authService), emergencyOverrideActive)
         .then((planResponse) => writeJson(response, 200, planResponse))
         .catch((error: unknown) => writeJson(response, 500, {
           error: error instanceof Error ? error.message : "Unknown error",
@@ -103,7 +138,7 @@ export function startServer(): void {
       }
 
       emergencyOverrideActive = true;
-      void createPlanResponse(config, onboarding, registry, emergencyOverrideActive)
+      void createPlanResponse(config, onboarding, createProviderRegistry(config, authService), emergencyOverrideActive)
         .then((planResponse) => writeJson(response, 200, planResponse))
         .catch((error: unknown) => writeJson(response, 500, {
           error: error instanceof Error ? error.message : "Unknown error",
@@ -121,7 +156,7 @@ export function startServer(): void {
 }
 
 // Requirements: PRV-001, PRV-002, PRV-005, WEB-009
-function createProviderRegistry(config: ReturnType<typeof loadConfig>): ProviderRegistry {
+function createProviderRegistry(config: ReturnType<typeof loadConfig>, authService?: ProviderAuthService): ProviderRegistry {
   const registry = new ProviderRegistry();
   registry.registerElectricityPriceProvider(new MockElectricityPriceProvider(prices));
 
@@ -129,17 +164,19 @@ function createProviderRegistry(config: ReturnType<typeof loadConfig>): Provider
     registry.registerChargerProvider(new MockChargerProvider());
   }
 
-  if (config.tibberAccessToken !== null) {
-    const tibberClient = new TibberClient(config.tibberAccessToken);
+  const tibberAccessToken = authService?.getAccessToken("tibber") ?? config.tibberAccessToken;
+  if (tibberAccessToken !== null) {
+    const tibberClient = new TibberClient(tibberAccessToken);
     const selection = { homeId: config.tibberHomeId };
     registry.registerElectricityPriceProvider(new TibberPriceProvider(tibberClient, selection));
     registry.registerHomeTelemetryProvider(new TibberHomeTelemetryProvider(tibberClient, selection));
   }
 
-  if (config.teslaAccessToken !== null) {
+  const teslaAccessToken = authService?.getAccessToken("tesla") ?? config.teslaAccessToken;
+  if (teslaAccessToken !== null) {
     registry.registerVehicleStateProvider(
       new TeslaVehicleStateProvider(
-        new TeslaClient(config.teslaAccessToken),
+        new TeslaClient(teslaAccessToken),
         { vehicleId: config.teslaVehicleId },
       ),
     );
@@ -529,6 +566,22 @@ function writeJson(response: ServerResponse, statusCode: number, body: unknown):
   response.end(JSON.stringify(body));
 }
 
+function writeHtml(response: ServerResponse, statusCode: number, message: string): void {
+  response.writeHead(statusCode, { "content-type": "text/html; charset=utf-8" });
+  response.end(`<!doctype html><html lang="en"><body><p>${escapeHtml(message)}</p></body></html>`);
+}
+
+function getProviderFromPath(path: string): AuthProviderId {
+  return path.includes("/tesla/") ? "tesla" : "tibber";
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 function strategyLabel(mode: AppConfig["userMode"]): string {
   switch (mode) {
     case "safe":
@@ -721,6 +774,17 @@ function renderHtml(): string {
       margin: 0 0 14px;
     }
 
+    .connect {
+      margin-top: 14px;
+    }
+
+    .connect-row {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
     @media (min-width: 620px) {
       main { padding: 28px; }
       .ready { font-size: 42px; }
@@ -804,6 +868,30 @@ function renderHtml(): string {
         </ol>
       </div>
 
+      <div class="item connect">
+        <span class="label">Connect providers</span>
+        <div class="grid">
+          <div>
+            <span class="label">Tibber</span>
+            <span class="value" id="tibber-status">Not connected</span>
+            <p class="subtle" id="tibber-summary">Uses demo prices until connected.</p>
+            <div class="connect-row">
+              <button type="button" id="connect-tibber">Connect Tibber</button>
+              <button type="button" id="disconnect-tibber">Disconnect Tibber</button>
+            </div>
+          </div>
+          <div>
+            <span class="label">Tesla</span>
+            <span class="value" id="tesla-status">Not connected</span>
+            <p class="subtle" id="tesla-summary">Uses demo car data until connected.</p>
+            <div class="connect-row">
+              <button type="button" id="connect-tesla">Connect Tesla</button>
+              <button type="button" id="disconnect-tesla">Disconnect Tesla</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <p class="warning" id="warning"></p>
 
       <div class="actions">
@@ -860,6 +948,11 @@ function renderHtml(): string {
         .then((response) => response.json())
         .then((data) => renderPlan(data));
     });
+
+    document.getElementById("connect-tibber").addEventListener("click", () => startProviderAuth("tibber"));
+    document.getElementById("connect-tesla").addEventListener("click", () => startProviderAuth("tesla"));
+    document.getElementById("disconnect-tibber").addEventListener("click", () => disconnectProvider("tibber"));
+    document.getElementById("disconnect-tesla").addEventListener("click", () => disconnectProvider("tesla"));
 
     const strategyDialog = document.getElementById("strategy-dialog");
     document.getElementById("change-strategy").addEventListener("click", () => {
@@ -925,6 +1018,7 @@ function renderHtml(): string {
           warning.style.display = "block";
           warning.textContent = "The car may not reach the target in time.";
         }
+        refreshConnections();
       }
 
     function strategyName(mode) {
@@ -934,6 +1028,40 @@ function renderHtml(): string {
         savings: "Lowest cost",
       }[mode] || "Always ready";
     }
+
+    function refreshConnections() {
+      fetch("/api/connections")
+        .then((response) => response.json())
+        .then((data) => {
+          renderConnection(data.connections.find((connection) => connection.provider === "tibber"), "tibber");
+          renderConnection(data.connections.find((connection) => connection.provider === "tesla"), "tesla");
+        });
+    }
+
+    function renderConnection(connection, provider) {
+      if (!connection) return;
+      document.getElementById(provider + "-status").textContent = connection.connected ? "Connected" : "Not connected";
+      document.getElementById(provider + "-summary").textContent = connection.summary || connection.warning || "Not connected";
+    }
+
+    function startProviderAuth(provider) {
+      fetch("/api/auth/" + provider + "/start", { method: "POST" })
+        .then((response) => response.json())
+        .then((data) => {
+          if (data.authorizationUrl) {
+            window.location.href = data.authorizationUrl;
+            return;
+          }
+          alert(data.message);
+        });
+    }
+
+    function disconnectProvider(provider) {
+      fetch("/api/auth/" + provider + "/disconnect", { method: "POST" })
+        .then(() => refreshConnections());
+    }
+
+    refreshConnections();
   </script>
 </body>
 </html>`;

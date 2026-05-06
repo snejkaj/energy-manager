@@ -38,6 +38,7 @@ Areas:
 - `FDB`: daily feedback and outcome analysis
 - `ONB`: onboarding and startup guidance
 - `TES`: Tesla read-only vehicle data
+- `AUTH`: provider OAuth connection flow
 
 ## Product Scope
 
@@ -161,6 +162,19 @@ Areas:
 | `ONB-002` | On startup, missing database configuration must enable demo mode and clearly show that no data is saved. |
 | `ONB-003` | On startup, missing charger configuration must show "planning only mode" and must not imply hardware control. |
 | `ONB-004` | Setup documentation and startup messages must help a new user understand the required setup in under two minutes. |
+
+## Provider Auth Requirements
+
+| ID | Requirement |
+| --- | --- |
+| `AUTH-001` | The UI must show Tibber and Tesla connection status. |
+| `AUTH-002` | The UI must provide Connect and Disconnect buttons for Tibber and Tesla. |
+| `AUTH-003` | Provider auth must be handled through a `ProviderAuthService` abstraction. |
+| `AUTH-004` | OAuth client secrets must never be exposed to the frontend. |
+| `AUTH-005` | Provider tokens must be stored server-side only. |
+| `AUTH-006` | Refresh tokens must be encrypted when an encryption key is configured for persistence-ready storage. |
+| `AUTH-007` | When no database exists, temporary in-memory tokens may be used for development only and the UI must warn clearly. |
+| `AUTH-008` | Missing provider auth must never break planning; the app must continue in demo or planning-only mode. |
 
 ## Tibber Price Requirements
 

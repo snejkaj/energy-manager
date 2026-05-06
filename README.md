@@ -28,6 +28,7 @@ Implemented so far:
 - PostgreSQL schema for prices, forecasts, travel data, charging plans, decision logs, and outcomes
 - Tibber provider for price data and optional home power readings
 - read-only Tesla provider for SOC, plugged-in state, charging state, and estimated range
+- provider connection UI for Tibber and Tesla OAuth setup
 - Open-Meteo weather provider
 - optional solar prediction from weather and historical production
 - travel event system for calendar tags, manual "Needs car", and AI-inferred trips
@@ -117,6 +118,7 @@ Optional:
 - Set `DATABASE_URL` to a PostgreSQL connection string to save data.
 - Add `TIBBER_ACCESS_TOKEN` to fetch real electricity prices.
 - Add `TESLA_ACCESS_TOKEN` to show live car battery level and plugged-in state.
+- Or connect Tibber/Tesla from the web UI using OAuth.
 - Keep `CHARGER_PROVIDER=planning-only` until real charger control is added.
 - Use `mock-charger` only for local development and tests.
 
@@ -141,6 +143,9 @@ Initial Home Assistant options include:
 - Tibber home ID
 - Tesla access token
 - Tesla vehicle ID
+- Tibber OAuth client ID, secret, and redirect URI
+- Tesla OAuth client ID, secret, and redirect URI
+- optional token encryption key
 - PostgreSQL database URL
 - departure time
 - minimum SOC
@@ -241,6 +246,70 @@ To verify it works, the UI should show:
 - approximate completion time, for example `approx 06:30`
 - reason list, for example cheap electricity, typical weekday trip, and expected solar
 - `Charge to 100%`
+
+## Provider Login
+
+The UI has a setup section with:
+
+- Tibber: `Connected` or `Not connected`
+- Tesla: `Connected` or `Not connected`
+- `Connect Tibber`
+- `Connect Tesla`
+- `Disconnect Tibber`
+- `Disconnect Tesla`
+
+Secrets stay on the server. The frontend only receives a provider status and an authorization URL.
+
+In demo mode, OAuth tokens are stored in memory only and disappear when the add-on restarts. Set `DATABASE_URL` and `TOKEN_ENCRYPTION_KEY` before using persistent token storage later.
+
+### Tibber OAuth Client
+
+Create a Tibber OAuth client in Tibber's developer/management UI.
+
+Use these local redirect URLs while developing:
+
+```text
+http://localhost:3000/api/auth/tibber/callback
+```
+
+Set:
+
+```text
+TIBBER_OAUTH_CLIENT_ID=
+TIBBER_OAUTH_CLIENT_SECRET=
+TIBBER_OAUTH_REDIRECT_URI=http://localhost:3000/api/auth/tibber/callback
+```
+
+The app requests read scopes for user and home data plus `offline_access` for refresh tokens.
+
+### Tesla Developer App
+
+Create a Tesla developer app in the Tesla developer portal and configure an OAuth redirect URI.
+
+Use this local redirect URL while developing:
+
+```text
+http://localhost:3000/api/auth/tesla/callback
+```
+
+Set:
+
+```text
+TESLA_OAUTH_CLIENT_ID=
+TESLA_OAUTH_CLIENT_SECRET=
+TESLA_OAUTH_REDIRECT_URI=http://localhost:3000/api/auth/tesla/callback
+```
+
+The app requests read-only vehicle data scope. It does not request vehicle command or charging command scopes.
+
+### Home Assistant Redirects
+
+For a Home Assistant add-on, the redirect URI must match the externally reachable add-on URL. Localhost only works for local development. When using Home Assistant ingress, configure the OAuth client with the public HTTPS URL that reaches:
+
+```text
+/api/auth/tibber/callback
+/api/auth/tesla/callback
+```
 
 ## Requirements
 

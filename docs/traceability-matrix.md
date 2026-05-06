@@ -29,6 +29,14 @@ Status values are defined in [requirements-traceability.md](requirements-traceab
 | `ONB-002` | `src/app/onboarding.ts`, `.env.example`, `config.yaml`, `README.md` | `tests/app/onboarding.test.ts` | implemented |
 | `ONB-003` | `src/app/onboarding.ts`, `src/app/server.ts`, `.env.example`, `config.yaml`, `README.md` | `tests/app/onboarding.test.ts` | implemented |
 | `ONB-004` | `README.md`, `run.sh`, `config.yaml`, `.env.example` | documentation review | implemented |
+| `AUTH-001` | `src/app/server.ts` | UI smoke review | implemented |
+| `AUTH-002` | `src/app/server.ts` | UI smoke review | implemented |
+| `AUTH-003` | `src/app/auth/ProviderAuthService.ts` | `tests/app/ProviderAuthService.test.ts` | implemented |
+| `AUTH-004` | `src/app/auth/ProviderAuthService.ts`, `src/app/server.ts` | `tests/app/ProviderAuthService.test.ts` | implemented |
+| `AUTH-005` | `src/app/auth/ProviderAuthService.ts` | `tests/app/ProviderAuthService.test.ts` | implemented |
+| `AUTH-006` | `src/app/auth/ProviderAuthService.ts` | unit tests/review | implemented |
+| `AUTH-007` | `src/app/auth/ProviderAuthService.ts`, `src/app/server.ts` | `tests/app/ProviderAuthService.test.ts` | implemented |
+| `AUTH-008` | `src/app/onboarding.ts`, `src/app/server.ts` | onboarding/API tests | implemented |
 
 ## Core Product Principles
 
