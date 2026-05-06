@@ -54,5 +54,37 @@ describe("loadConfig", () => {
     expect(config.solarPanelAzimuthDegrees).toBeNull();
     expect(config.electricityPriceProvider).toBe("mock-electricity-price");
     expect(config.homeTelemetryProvider).toBe("mock-home-telemetry");
+    expect(config.vehicleStateProvider).toBe("mock-vehicle-state");
+    expect(config.weatherForecastProvider).toBe("mock-weather-forecast");
+  });
+
+  it("uses live Tesla and weather providers only when enough config exists", () => {
+    const config = loadConfig({
+      TESLA_ACCESS_TOKEN: "token",
+      WEATHER_LATITUDE: "59.33",
+      WEATHER_LONGITUDE: "18.06",
+    });
+
+    expect(config.vehicleStateProvider).toBe("tesla");
+    expect(config.weatherForecastProvider).toBe("open-meteo");
+  });
+
+  it("does not throw when optional numeric settings are invalid", () => {
+    const config = loadConfig({
+      WEATHER_LATITUDE: "not-a-number",
+      SOLAR_PANEL_TILT_DEGREES: "not-a-number",
+      CHARGER_POWER_KW: "not-a-number",
+      DEPARTURE_TIME: "not-a-time",
+    });
+
+    expect(config.weatherLatitude).toBeNull();
+    expect(config.solarPanelTiltDegrees).toBeNull();
+    expect(config.chargerPowerKw).toBe(11);
+    expect(config.setupNotes).toEqual(expect.arrayContaining([
+      "weather latitude is not a valid number. This setting is disabled.",
+      "solar panel tilt is not a valid number. This setting is disabled.",
+      "charger power is not a valid number. The default value is used.",
+      "Departure time is not valid. 08:00 is used.",
+    ]));
   });
 });

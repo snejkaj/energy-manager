@@ -1,6 +1,6 @@
 # Requirements: HA-001, HA-002, HA-006, HA-007, ONB-001, ONB-002, ONB-003, ONB-004
 name: Energy Manager
-version: 0.1.0
+version: 0.1.1
 slug: energy-manager
 description: Plans EV charging from electricity prices. Starts in planning-only mode until setup is complete.
 arch:
@@ -24,16 +24,16 @@ options:
   electricity_price_provider: "mock-electricity-price"
   home_telemetry_provider: "mock-home-telemetry"
   charger_provider: "planning-only"
-  vehicle_state_provider: "tesla"
-  weather_forecast_provider: "open-meteo"
+  vehicle_state_provider: "mock-vehicle-state"
+  weather_forecast_provider: "mock-weather-forecast"
   user_mode: "safe"
-  soc_buffer_percent: 15
-  start_early_minutes: 90
+  soc_buffer_percent: "15"
+  start_early_minutes: "90"
   allow_undercharge_risk: false
-  weather_latitude: null
-  weather_longitude: null
-  solar_panel_tilt_degrees: null
-  solar_panel_azimuth_degrees: null
+  weather_latitude: ""
+  weather_longitude: ""
+  solar_panel_tilt_degrees: ""
+  solar_panel_azimuth_degrees: ""
   tibber_access_token: ""
   tibber_home_id: ""
   tesla_access_token: ""
@@ -47,11 +47,11 @@ options:
   token_encryption_key: ""
   database_url: ""
   departure_time: "07:00"
-  minimum_soc_percent: 60
-  maximum_soc_percent: 80
-  battery_capacity_kwh: 75
-  charger_power_kw: 11
-  charging_efficiency: 0.9
+  minimum_soc_percent: "60"
+  maximum_soc_percent: "80"
+  battery_capacity_kwh: "75"
+  charger_power_kw: "11"
+  charging_efficiency: "0.9"
 schema:
   electricity_price_provider: str?
   home_telemetry_provider: str?
@@ -59,13 +59,13 @@ schema:
   vehicle_state_provider: str?
   weather_forecast_provider: str?
   user_mode: str?
-  soc_buffer_percent: float?
-  start_early_minutes: int?
+  soc_buffer_percent: str?
+  start_early_minutes: str?
   allow_undercharge_risk: bool?
-  weather_latitude: float?
-  weather_longitude: float?
-  solar_panel_tilt_degrees: float?
-  solar_panel_azimuth_degrees: float?
+  weather_latitude: "str?"
+  weather_longitude: "str?"
+  solar_panel_tilt_degrees: "str?"
+  solar_panel_azimuth_degrees: "str?"
   tibber_access_token: "str?"
   tibber_home_id: "str?"
   tesla_access_token: password?
@@ -79,8 +79,8 @@ schema:
   token_encryption_key: password?
   database_url: str?
   departure_time: str?
-  minimum_soc_percent: int?
-  maximum_soc_percent: int?
-  battery_capacity_kwh: float?
-  charger_power_kw: float?
-  charging_efficiency: float?
+  minimum_soc_percent: str?
+  maximum_soc_percent: str?
+  battery_capacity_kwh: str?
+  charger_power_kw: str?
+  charging_efficiency: str?

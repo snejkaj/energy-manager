@@ -24,6 +24,8 @@ export function createStartupOnboarding(config: AppConfig): StartupOnboarding {
   const demoMode = config.databaseUrl === null;
   const planningOnlyMode = config.chargerProvider === null || config.chargerProvider === "planning-only";
 
+  setupMessages.push(...config.setupNotes);
+
   if (demoMode) {
     setupWarnings.push(
       "Demo mode - no data is saved. Set DATABASE_URL to enable PostgreSQL storage.",

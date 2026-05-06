@@ -33,9 +33,12 @@ export interface AppConfig {
   batteryCapacityKwh: number;
   chargerPowerKw: number;
   chargingEfficiency: number;
+  setupNotes: string[];
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
+  const setupNotes: string[] = [];
+
   return {
     port: parsePort(env.PORT),
     databaseUrl: emptyToNull(env.DATABASE_URL),
@@ -53,26 +56,27 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     electricityPriceProvider: emptyToNull(env.ELECTRICITY_PRICE_PROVIDER) ?? defaultElectricityPriceProvider(env),
     homeTelemetryProvider: emptyToNull(env.HOME_TELEMETRY_PROVIDER) ?? defaultHomeTelemetryProvider(env),
     chargerProvider: emptyToNull(env.CHARGER_PROVIDER) ?? "planning-only",
-    vehicleStateProvider: emptyToNull(env.VEHICLE_STATE_PROVIDER) ?? "tesla",
-    weatherForecastProvider: emptyToNull(env.WEATHER_FORECAST_PROVIDER) ?? "open-meteo",
-    userMode: parseUserMode(env.USER_MODE),
-    socBufferPercent: parseNumberWithDefault(env.SOC_BUFFER_PERCENT, 15),
-    startEarlyMinutes: parseNumberWithDefault(env.START_EARLY_MINUTES, 90),
-    allowUnderchargeRisk: parseBoolean(env.ALLOW_UNDERCHARGE_RISK, false),
-    weatherLatitude: parseOptionalNumber(env.WEATHER_LATITUDE),
-    weatherLongitude: parseOptionalNumber(env.WEATHER_LONGITUDE),
-    solarPanelTiltDegrees: parseOptionalNumber(env.SOLAR_PANEL_TILT_DEGREES),
-    solarPanelAzimuthDegrees: parseOptionalNumber(env.SOLAR_PANEL_AZIMUTH_DEGREES),
-    departureTime: parseDepartureTime(env.DEPARTURE_TIME),
-    minimumSocPercent: parseNumberWithDefault(env.MINIMUM_SOC_PERCENT, 65),
-    maximumSocPercent: parseNumberWithDefault(env.MAXIMUM_SOC_PERCENT, 80),
-    batteryCapacityKwh: parseNumberWithDefault(env.BATTERY_CAPACITY_KWH, 75),
-    chargerPowerKw: parseNumberWithDefault(env.CHARGER_POWER_KW, 11),
-    chargingEfficiency: parseNumberWithDefault(env.CHARGING_EFFICIENCY, 0.9),
+    vehicleStateProvider: emptyToNull(env.VEHICLE_STATE_PROVIDER) ?? defaultVehicleStateProvider(env),
+    weatherForecastProvider: emptyToNull(env.WEATHER_FORECAST_PROVIDER) ?? defaultWeatherForecastProvider(env),
+    userMode: parseUserMode(env.USER_MODE, setupNotes),
+    socBufferPercent: parseNumberWithDefault(env.SOC_BUFFER_PERCENT, 15, "SOC buffer", setupNotes),
+    startEarlyMinutes: parseNumberWithDefault(env.START_EARLY_MINUTES, 90, "start early minutes", setupNotes),
+    allowUnderchargeRisk: parseBoolean(env.ALLOW_UNDERCHARGE_RISK, false, "allow undercharge risk", setupNotes),
+    weatherLatitude: parseOptionalNumber(env.WEATHER_LATITUDE, "weather latitude", setupNotes),
+    weatherLongitude: parseOptionalNumber(env.WEATHER_LONGITUDE, "weather longitude", setupNotes),
+    solarPanelTiltDegrees: parseOptionalNumber(env.SOLAR_PANEL_TILT_DEGREES, "solar panel tilt", setupNotes),
+    solarPanelAzimuthDegrees: parseOptionalNumber(env.SOLAR_PANEL_AZIMUTH_DEGREES, "solar panel azimuth", setupNotes),
+    departureTime: parseDepartureTime(env.DEPARTURE_TIME, setupNotes),
+    minimumSocPercent: parseNumberWithDefault(env.MINIMUM_SOC_PERCENT, 65, "minimum SOC", setupNotes),
+    maximumSocPercent: parseNumberWithDefault(env.MAXIMUM_SOC_PERCENT, 80, "maximum SOC", setupNotes),
+    batteryCapacityKwh: parseNumberWithDefault(env.BATTERY_CAPACITY_KWH, 75, "battery capacity", setupNotes),
+    chargerPowerKw: parseNumberWithDefault(env.CHARGER_POWER_KW, 11, "charger power", setupNotes),
+    chargingEfficiency: parseNumberWithDefault(env.CHARGING_EFFICIENCY, 0.9, "charging efficiency", setupNotes),
+    setupNotes,
   };
 }
 
-function parseUserMode(value: string | undefined): AppConfig["userMode"] {
+function parseUserMode(value: string | undefined, setupNotes: string[]): AppConfig["userMode"] {
   if (value === undefined || value.trim() === "") {
     return "safe";
   }
@@ -81,7 +85,8 @@ function parseUserMode(value: string | undefined): AppConfig["userMode"] {
     return value;
   }
 
-  throw new Error("USER_MODE must be safe, balanced, or savings.");
+  setupNotes.push("Charging strategy was not recognized. Safe mode is used.");
+  return "safe";
 }
 
 function defaultElectricityPriceProvider(env: NodeJS.ProcessEnv): string {
@@ -92,20 +97,45 @@ function defaultHomeTelemetryProvider(env: NodeJS.ProcessEnv): string {
   return emptyToNull(env.TIBBER_ACCESS_TOKEN) === null ? "mock-home-telemetry" : "tibber-live-measurement";
 }
 
-function parseNumberWithDefault(value: string | undefined, defaultValue: number): number {
+function defaultVehicleStateProvider(env: NodeJS.ProcessEnv): string {
+  return emptyToNull(env.TESLA_ACCESS_TOKEN) === null ? "mock-vehicle-state" : "tesla";
+}
+
+function defaultWeatherForecastProvider(env: NodeJS.ProcessEnv): string {
+  return parseOptionalNumberQuietly(env.WEATHER_LATITUDE) === null || parseOptionalNumberQuietly(env.WEATHER_LONGITUDE) === null
+    ? "mock-weather-forecast"
+    : "open-meteo";
+}
+
+function parseOptionalNumberQuietly(value: string | undefined): number | null {
+  if (value === undefined || value.trim() === "" || value.trim() === "null") {
+    return null;
+  }
+
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : null;
+}
+
+function parseNumberWithDefault(
+  value: string | undefined,
+  defaultValue: number,
+  label: string,
+  setupNotes: string[],
+): number {
   if (value === undefined || value.trim() === "" || value.trim() === "null") {
     return defaultValue;
   }
 
   const numberValue = Number(value);
   if (!Number.isFinite(numberValue)) {
-    throw new Error(`Expected numeric environment value, got ${value}.`);
+    setupNotes.push(`${label} is not a valid number. The default value is used.`);
+    return defaultValue;
   }
 
   return numberValue;
 }
 
-function parseBoolean(value: string | undefined, defaultValue: boolean): boolean {
+function parseBoolean(value: string | undefined, defaultValue: boolean, label: string, setupNotes: string[]): boolean {
   if (value === undefined || value.trim() === "" || value.trim() === "null") {
     return defaultValue;
   }
@@ -118,7 +148,8 @@ function parseBoolean(value: string | undefined, defaultValue: boolean): boolean
     return false;
   }
 
-  throw new Error(`Expected boolean environment value, got ${value}.`);
+  setupNotes.push(`${label} is not valid. The default value is used.`);
+  return defaultValue;
 }
 
 function parsePort(value: string | undefined): number {
@@ -146,23 +177,25 @@ function trimEnv(value: string | undefined): string | undefined {
   return value === undefined ? undefined : value.trim();
 }
 
-function parseOptionalNumber(value: string | undefined): number | null {
+function parseOptionalNumber(value: string | undefined, label: string, setupNotes: string[]): number | null {
   if (value === undefined || value.trim() === "" || value.trim() === "null") {
     return null;
   }
 
   const numberValue = Number(value);
   if (!Number.isFinite(numberValue)) {
-    throw new Error(`Expected numeric environment value, got ${value}.`);
+    setupNotes.push(`${label} is not a valid number. This setting is disabled.`);
+    return null;
   }
 
   return numberValue;
 }
 
-function parseDepartureTime(value: string | undefined): string {
+function parseDepartureTime(value: string | undefined, setupNotes: string[]): string {
   const time = value === undefined || value.trim() === "" || value.trim() === "null" ? "08:00" : value.trim();
   if (!/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(time)) {
-    throw new Error("DEPARTURE_TIME must use HH:mm format.");
+    setupNotes.push("Departure time is not valid. 08:00 is used.");
+    return parseDepartureTime("08:00", []);
   }
 
   const [hours, minutes] = time.split(":").map(Number);
