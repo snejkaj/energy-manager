@@ -163,6 +163,7 @@ export function startServer(): void {
     }
 
     if (request.method === "GET" && path === "/api/plan") {
+      logger.info("HTTP", "GET /api/plan requested");
       void createPlanResponse(config, onboarding, createProviderRegistry(config, authService), emergencyOverrideActive)
         .then((planResponse) => writeJson(response, 200, planResponse))
         .catch((error: unknown) =>
@@ -1152,6 +1153,12 @@ function renderHtml(): string {
           <dd id="diag-last-event">None</dd>
           <dt>Last UI error</dt>
           <dd id="diag-last-error">None</dd>
+          <dt>Current URL</dt>
+          <dd id="diag-current-url">Unknown</dd>
+          <dt>Base URI</dt>
+          <dd id="diag-base-uri">Unknown</dd>
+          <dt>App script URL</dt>
+          <dd id="diag-app-js-url">Unknown</dd>
         </dl>
       </div>
       <p class="ready" id="ready">Ready by 07:00</p>
@@ -1286,7 +1293,7 @@ window.addEventListener("error", function (event) {
   if (el) el.textContent = event.message + " at " + event.filename + ":" + event.lineno;
 });
 </script>
-  <script src="/app.js?v=debug-3"></script>
+  <script src="./app.js"></script>
 </body>
 </html>`;
 }
@@ -1505,11 +1512,16 @@ function renderAppJs(): string {
       });
     }
 
+    function apiUrl(path) {
+      return "./" + String(path).replace(/^\\/+/, "");
+    }
+
     function fetchJson(url, options) {
-      console.log("Fetch:", options && options.method ? options.method : "GET", url);
-      return fetch(url, options).then((response) => {
+      const resolvedUrl = apiUrl(url);
+      console.log("Fetch:", options && options.method ? options.method : "GET", resolvedUrl);
+      return fetch(resolvedUrl, options).then((response) => {
         if (!response.ok) {
-          throw new Error(url + " failed with HTTP " + response.status);
+          throw new Error(resolvedUrl + " failed with HTTP " + response.status);
         }
         return response;
       });

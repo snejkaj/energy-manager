@@ -21,6 +21,7 @@ try {
       uiLog("app.js loaded");
       setScriptStatus("DOMContentLoaded");
       uiLog("DOMContentLoaded");
+      updateLocationDiagnostics();
       document.addEventListener("click", (event) => {
         const target = event.target;
         console.log("[UI] document click", target);
@@ -317,14 +318,25 @@ try {
       .catch((error) => showFetchError(providerName(provider) + " disconnect failed", error));
   }
 
+  function apiUrl(path) {
+    return "./" + String(path).replace(/^\/+/, "");
+  }
+
   function fetchJson(url, options) {
-    uiLog("fetch: " + (options && options.method ? options.method : "GET") + " " + url);
-    return fetch(url, options).then((response) => {
+    const resolvedUrl = apiUrl(url);
+    uiLog("fetch: " + (options && options.method ? options.method : "GET") + " " + resolvedUrl);
+    return fetch(resolvedUrl, options).then((response) => {
       if (!response.ok) {
-        throw new Error(url + " failed with HTTP " + response.status);
+        throw new Error(resolvedUrl + " failed with HTTP " + response.status);
       }
       return response;
     });
+  }
+
+  function updateLocationDiagnostics() {
+    setDiag("diag-current-url", window.location.href);
+    setDiag("diag-base-uri", document.baseURI);
+    setDiag("diag-app-js-url", new URL("./app.js", document.baseURI).href);
   }
 
   function showFetchError(message, error) {
