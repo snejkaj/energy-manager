@@ -29,6 +29,12 @@ const prices: PriceInterval[] = [
   price("2026-05-05T07:00:00.000Z", 2.42),
 ];
 
+const demoReasons = [
+  "Cheap electricity",
+  "Typical weekday trip",
+  "Solar expected tomorrow",
+] as const;
+
 const dailyOutcomes: DecisionOutcomeRecord[] = [
   {
     id: "demo-outcome",
@@ -170,7 +176,11 @@ async function createPlanResponse(
 ): Promise<PlanResponse> {
   const priceProvider = registry.getElectricityPriceProvider(config.electricityPriceProvider);
   if (priceProvider === null) {
-    throw new Error(`Unknown electricity price provider: ${config.electricityPriceProvider}`);
+    return createDemoPlanResponse(config, onboarding, emergencyOverrideActive);
+  }
+
+  if (onboarding.demoMode && config.tibberAccessToken === null) {
+    return createDemoPlanResponse(config, onboarding, emergencyOverrideActive);
   }
 
   const target = createChargingTarget(config);
@@ -229,12 +239,120 @@ async function createPlanResponse(
   };
 }
 
+function createDemoPlanResponse(
+  config: AppConfig,
+  onboarding: StartupOnboarding,
+  emergencyOverrideActive: boolean,
+): PlanResponse {
+  const modeResult = applyUserModePolicy({
+    target: createChargingTarget(config),
+    mode: config.userMode,
+  });
+  const plan = emergencyOverrideActive ? createDemoEmergencyPlan() : createDemoChargingPlan();
+  const completion = emergencyOverrideActive ? createDemoEmergencyCompletion() : createDemoCompletion();
+
+  return {
+    currentPrice: price("2026-05-05T01:00:00.000Z", 0.88),
+    prices,
+    userMode: modeResult.policy,
+    planReasons: emergencyOverrideActive
+      ? ["Charge to 100% requested", "Safety override", "Planning only - no hardware control"]
+      : [...demoReasons],
+    nextTrip: {
+      title: "Typical weekday trip",
+      startsAt: "2026-05-05T07:00:00.000Z",
+    },
+    chargingWindow: {
+      startsAt: plan.slots[0]?.startsAt ?? null,
+      endsAt: plan.slots.at(-1)?.endsAt ?? null,
+    },
+    completion,
+    dailyFeedback: analyzeOutcomes(dailyOutcomes),
+    onboarding: createOnboardingResponse(onboarding),
+    status: createStatusResponse(config, onboarding, emergencyOverrideActive),
+    emergencyOverrideActive,
+    plan,
+  };
+}
+
+function createDemoChargingPlan(): ChargingPlan {
+  return {
+    feasible: true,
+    slots: [
+      {
+        startsAt: "2026-05-05T01:20:00.000Z",
+        endsAt: "2026-05-05T04:10:00.000Z",
+        durationHours: 2.833333,
+        energyKwh: 28.05,
+        price: 0.91,
+        estimatedCost: 25.53,
+      },
+    ],
+    plannedEnergyKwh: 28.05,
+    estimatedCost: 25.53,
+    resultingSocPercent: 80,
+    deficitKwh: 0,
+    deficitSocPercent: 0,
+    currency: "SEK",
+  };
+}
+
+function createDemoEmergencyPlan(): ChargingPlan {
+  return {
+    feasible: true,
+    slots: [
+      {
+        startsAt: "2026-05-05T00:10:00.000Z",
+        endsAt: "2026-05-05T05:35:00.000Z",
+        durationHours: 5.416667,
+        energyKwh: 53.63,
+        price: 1.08,
+        estimatedCost: 57.92,
+      },
+    ],
+    plannedEnergyKwh: 53.63,
+    estimatedCost: 57.92,
+    resultingSocPercent: 100,
+    deficitKwh: 0,
+    deficitSocPercent: 0,
+    currency: "SEK",
+  };
+}
+
+function createDemoCompletion(): ReturnType<typeof estimateCompletionForTarget> {
+  return {
+    approximate: true,
+    estimatedCompletionTime: "2026-05-05T06:30:00.000Z",
+    estimatedCompletionTimeMin: "2026-05-05T06:10:00.000Z",
+    estimatedCompletionTimeMax: "2026-05-05T07:00:00.000Z",
+    remainingEnergyKwh: 28.05,
+    effectivePowerKw: 11,
+    timeNeededHours: 2.55,
+    reason: ["cheap_electricity", "typical_weekday_trip", "solar_expected_tomorrow"],
+  };
+}
+
+function createDemoEmergencyCompletion(): ReturnType<typeof estimateCompletionForTarget> {
+  return {
+    approximate: true,
+    estimatedCompletionTime: "2026-05-05T06:45:00.000Z",
+    estimatedCompletionTimeMin: "2026-05-05T06:25:00.000Z",
+    estimatedCompletionTimeMax: "2026-05-05T07:00:00.000Z",
+    remainingEnergyKwh: 53.63,
+    effectivePowerKw: 11,
+    timeNeededHours: 4.875,
+    reason: ["user_requested_100_percent", "safety_override", "planning_only_no_hardware_control"],
+  };
+}
+
 function createStatusResponse(
   config: AppConfig,
   onboarding: StartupOnboarding,
   emergencyOverrideActive: boolean,
 ) {
-  const chargerStatus = config.chargerProvider === "mock-charger" ? "Mock charger" : "Planning only";
+  const chargerStatus = onboarding.demoMode
+    ? "Demo mode"
+    : config.chargerProvider === "mock-charger" ? "Mock charger" : "Planning only";
 
   return {
     ok: true,
@@ -381,6 +499,12 @@ function renderHtml(): string {
       color: var(--muted);
     }
 
+    .reasons li::marker {
+      content: "✔ ";
+      color: var(--primary);
+      font-weight: 760;
+    }
+
     .actions {
       display: grid;
       gap: 10px;
@@ -446,53 +570,63 @@ function renderHtml(): string {
 
     <section class="hero" aria-live="polite">
       <div class="demo" id="demo-mode">Demo mode - no data is saved</div>
-      <p class="ready" id="ready">Car ready at ...</p>
-      <p class="subtle" id="next-trip">Next trip loading</p>
+      <p class="ready" id="ready">Ready by 07:00</p>
+      <p class="subtle" id="next-trip">Typical weekday trip at 07:00</p>
 
       <div class="grid">
         <div class="item">
           <span class="label">Charging window</span>
-          <span class="value" id="window">Loading</span>
+          <span class="value" id="window">01:20 - 04:10</span>
         </div>
         <div class="item">
           <span class="label">Approx completion</span>
-          <span class="value" id="completion">Loading</span>
+          <span class="value" id="completion">approx 06:30</span>
         </div>
         <div class="item">
           <span class="label">Cost estimate</span>
-          <span class="value" id="cost">Loading</span>
+          <span class="value" id="cost">25.53 SEK</span>
         </div>
         <div class="item">
           <span class="label">Mode</span>
-          <span class="value" id="mode">Loading</span>
+          <span class="value" id="mode">Safe</span>
         </div>
         <div class="item">
           <span class="label">Setup</span>
-          <span class="value" id="setup-mode">Loading</span>
+          <span class="value" id="setup-mode">Demo mode</span>
         </div>
         <div class="item">
           <span class="label">Today</span>
-          <span class="value" id="daily-ready">Loading</span>
+          <span class="value" id="daily-ready">Car was ready</span>
         </div>
         <div class="item">
           <span class="label">Saved</span>
-          <span class="value" id="daily-saved">Loading</span>
+          <span class="value" id="daily-saved">12.3 SEK</span>
         </div>
       </div>
 
       <div class="item">
         <span class="label">Why this plan</span>
-        <ol class="reasons" id="reasons"></ol>
+        <ol class="reasons" id="reasons">
+          <li>Cheap electricity</li>
+          <li>Typical weekday trip</li>
+          <li>Solar expected tomorrow</li>
+        </ol>
       </div>
 
       <div class="item">
         <span class="label">Today's result</span>
-        <ol class="reasons" id="daily-feedback"></ol>
+        <ol class="reasons" id="daily-feedback">
+          <li>The car was ready when needed.</li>
+          <li>Charging cost less than the comparison plan by 12.3.</li>
+        </ol>
       </div>
 
       <div class="item" id="setup-item">
         <span class="label">Setup notes</span>
-        <ol class="reasons" id="setup-notes"></ol>
+        <ol class="reasons" id="setup-notes">
+          <li>Demo mode - no data is saved.</li>
+          <li>Planning only mode is active.</li>
+        </ol>
       </div>
 
       <p class="warning" id="warning"></p>
@@ -518,6 +652,12 @@ function renderHtml(): string {
         "safe mode applied": "Safe mode is on",
         "balanced mode applied": "Balanced mode is on",
         "savings mode applied": "Savings mode is on",
+        "cheap electricity": "Cheap electricity",
+        "typical weekday trip": "Typical weekday trip",
+        "solar expected tomorrow": "Solar expected tomorrow",
+        "charge to 100% requested": "Charge to 100% requested",
+        "safety override": "Safety override",
+        "planning only - no hardware control": "Planning only - no hardware control",
       }[String(reason).toLowerCase()];
       if (text) return text;
       return String(reason)
@@ -537,7 +677,7 @@ function renderHtml(): string {
     });
 
     function renderPlan(data) {
-        document.getElementById("ready").textContent = "Car ready at " + formatTime(data.completion.estimatedCompletionTimeMax);
+        document.getElementById("ready").textContent = "Ready by " + formatTime(data.completion.estimatedCompletionTimeMax);
         document.getElementById("next-trip").textContent = "Next trip: " + formatTime(data.nextTrip.startsAt);
         document.getElementById("window").textContent =
           formatTime(data.chargingWindow.startsAt) + " - " + formatTime(data.chargingWindow.endsAt);

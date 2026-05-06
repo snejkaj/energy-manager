@@ -37,6 +37,7 @@ Implemented so far:
 - mobile-first main screen focused on readiness, next trip, charging window, cost, and reasons
 - daily feedback showing whether the car was ready, money saved, failures, and simple suggestions
 - startup onboarding for Tibber, database, and planning-only charger setup
+- realistic demo mode plan with charging window, completion time, and simple reasons
 - tests for charging decisions, completion time, emergency charging, and user modes
 
 Not implemented yet:
@@ -228,10 +229,10 @@ To verify it works, the UI should show:
 
 - `Demo mode - no data is saved`
 - current mode, normally `Safe`
-- charger status, normally `Planning only`
-- next charging window
-- approximate completion time
-- reason list
+- setup/status, normally `Demo mode`
+- next charging window, for example `01:20 - 04:10`
+- approximate completion time, for example `approx 06:30`
+- reason list, for example cheap electricity, typical weekday trip, and expected solar
 - `Charge to 100%`
 
 ## Requirements
