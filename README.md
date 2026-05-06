@@ -228,7 +228,7 @@ tibber_access_token: ""
 To verify it works, the UI should show:
 
 - `Demo mode - no data is saved`
-- current mode, normally `Safe`
+- current priority, normally `Always ready`
 - setup/status, normally `Demo mode`
 - next charging window, for example `01:20 - 04:10`
 - approximate completion time, for example `approx 06:30`

@@ -357,7 +357,7 @@ function createStatusResponse(
   return {
     ok: true,
     demoMode: onboarding.demoMode,
-    mode: labelMode(config.userMode),
+    priority: strategyLabel(config.userMode),
     chargerProvider: config.chargerProvider ?? "planning-only",
     chargerStatus,
     planningOnlyMode: onboarding.planningOnlyMode,
@@ -393,8 +393,15 @@ function writeJson(response: ServerResponse, statusCode: number, body: unknown):
   response.end(JSON.stringify(body));
 }
 
-function labelMode(mode: AppConfig["userMode"]): string {
-  return mode.charAt(0).toUpperCase() + mode.slice(1);
+function strategyLabel(mode: AppConfig["userMode"]): string {
+  switch (mode) {
+    case "safe":
+      return "Always ready";
+    case "balanced":
+      return "Balanced";
+    case "savings":
+      return "Lowest cost";
+  }
 }
 
 function renderHtml(): string {
@@ -554,6 +561,30 @@ function renderHtml(): string {
       font-weight: 680;
     }
 
+    dialog {
+      width: min(calc(100% - 32px), 420px);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 18px;
+      color: var(--text);
+    }
+
+    dialog::backdrop {
+      background: rgb(0 0 0 / 0.28);
+    }
+
+    .dialog-title {
+      margin: 0 0 12px;
+      font-size: 20px;
+      font-weight: 760;
+    }
+
+    .strategy-list {
+      display: grid;
+      gap: 10px;
+      margin: 0 0 14px;
+    }
+
     @media (min-width: 620px) {
       main { padding: 28px; }
       .ready { font-size: 42px; }
@@ -587,8 +618,8 @@ function renderHtml(): string {
           <span class="value" id="cost">25.53 SEK</span>
         </div>
         <div class="item">
-          <span class="label">Mode</span>
-          <span class="value" id="mode">Safe</span>
+          <span class="label">Priority</span>
+          <span class="value" id="priority">Always ready</span>
         </div>
         <div class="item">
           <span class="label">Setup</span>
@@ -636,10 +667,20 @@ function renderHtml(): string {
         <div class="secondary-row">
           <button type="button">Change departure</button>
           <button type="button">Charge now</button>
-          <button type="button">Change mode</button>
+          <button type="button" id="change-strategy">Change strategy</button>
         </div>
       </div>
     </section>
+
+    <dialog id="strategy-dialog">
+      <h2 class="dialog-title">Charging strategy</h2>
+      <div class="strategy-list">
+        <button type="button" data-strategy="safe">Always ready</button>
+        <button type="button" data-strategy="balanced">Balanced</button>
+        <button type="button" data-strategy="savings">Lowest cost</button>
+      </div>
+      <button type="button" id="close-strategy">Close</button>
+    </dialog>
   </main>
   <script>
     const formatTime = (value) => {
@@ -676,6 +717,14 @@ function renderHtml(): string {
         .then((data) => renderPlan(data));
     });
 
+    const strategyDialog = document.getElementById("strategy-dialog");
+    document.getElementById("change-strategy").addEventListener("click", () => {
+      strategyDialog.showModal();
+    });
+    document.getElementById("close-strategy").addEventListener("click", () => {
+      strategyDialog.close();
+    });
+
     function renderPlan(data) {
         document.getElementById("ready").textContent = "Ready by " + formatTime(data.completion.estimatedCompletionTimeMax);
         document.getElementById("next-trip").textContent = "Next trip: " + formatTime(data.nextTrip.startsAt);
@@ -685,8 +734,8 @@ function renderHtml(): string {
           "approx " + formatTime(data.completion.estimatedCompletionTime) + " (" + formatTime(data.completion.estimatedCompletionTimeMin) + "-" + formatTime(data.completion.estimatedCompletionTimeMax) + ")";
         document.getElementById("cost").textContent =
           data.plan.estimatedCost + " " + (data.plan.currency || "");
-        document.getElementById("mode").textContent =
-          data.userMode.mode.charAt(0).toUpperCase() + data.userMode.mode.slice(1);
+        document.getElementById("priority").textContent =
+          strategyName(data.userMode.mode);
         document.getElementById("setup-mode").textContent =
           data.status.chargerStatus;
         document.getElementById("demo-mode").style.display =
@@ -724,6 +773,14 @@ function renderHtml(): string {
           warning.textContent = "The car may not reach the target in time.";
         }
       }
+
+    function strategyName(mode) {
+      return {
+        safe: "Always ready",
+        balanced: "Balanced",
+        savings: "Lowest cost",
+      }[mode] || "Always ready";
+    }
   </script>
 </body>
 </html>`;
