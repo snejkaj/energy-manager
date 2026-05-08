@@ -44,7 +44,7 @@ describe("ProviderAuthService", () => {
 
     expect(result.authorizationUrl).toContain("https://auth.tesla.com/oauth2/v3/authorize");
     expect(result.authorizationUrl).toContain("vehicle_device_data");
-    expect(result.authorizationUrl).toContain("vehicle_cmds");
+    expect(result.authorizationUrl).not.toContain("vehicle_cmds");
     expect(result.authorizationUrl).toContain("code_challenge=");
     expect(result.authorizationUrl).toContain("code_challenge_method=S256");
     expect(result.authorizationUrl).not.toContain("vehicle_charging_cmds");

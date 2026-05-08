@@ -406,7 +406,7 @@ TESLA_CLIENT_SECRET=
 TESLA_REDIRECT_URI=http://localhost:3000/api/auth/tesla/callback
 ```
 
-The app requests Tesla Fleet OAuth scopes `openid offline_access vehicle_device_data vehicle_cmds` for login compatibility. The add-on remains read-only: it does not wake the vehicle, start or stop charging, set current, or send vehicle commands.
+The app requests Tesla Fleet OAuth scopes `openid offline_access vehicle_device_data`. The add-on remains read-only: it does not wake the vehicle, start or stop charging, set current, or send vehicle commands.
 
 ### Home Assistant Redirects
 

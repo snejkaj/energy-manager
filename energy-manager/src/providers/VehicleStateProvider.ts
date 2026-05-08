@@ -25,6 +25,7 @@ export interface VehicleState {
   vehicleId?: string | null;
   vehicleOnlineState?: string | null;
   lastUpdatedAt?: string | null;
+  isDemo: boolean;
   source: string;
   observedAt: string;
 }

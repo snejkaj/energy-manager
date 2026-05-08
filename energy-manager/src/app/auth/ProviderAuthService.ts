@@ -103,6 +103,7 @@ export class ProviderAuthService {
         authorizationUrl.searchParams.set("code_challenge", pkce.challenge);
         authorizationUrl.searchParams.set("code_challenge_method", "S256");
       }
+      logger.info("TeslaAuth", `Using Tesla OAuth redirect_uri: ${oauthConfig.redirectUri}`);
     }
 
     return {
@@ -227,7 +228,7 @@ export class ProviderAuthService {
     });
 
     if (!response.ok) {
-      throw new Error(`${labelProvider(provider)} token exchange failed with HTTP ${response.status}.`);
+      throw new Error(createTokenExchangeError(provider, response.status, await response.text()));
     }
 
     return await response.json() as OAuthTokenResponse;
@@ -316,8 +317,21 @@ function getOAuthConfig(config: AppConfig, provider: AuthProviderId) {
     redirectUri: config.teslaOAuthRedirectUri,
     authorizationEndpoint: "https://auth.tesla.com/oauth2/v3/authorize",
     tokenEndpoint: "https://auth.tesla.com/oauth2/v3/token",
-    scope: "openid offline_access vehicle_device_data vehicle_cmds",
+    scope: "openid offline_access vehicle_device_data",
   };
+}
+
+function createTokenExchangeError(provider: AuthProviderId, status: number, responseText: string): string {
+  if (provider !== "tesla") {
+    return `${labelProvider(provider)} token exchange failed with HTTP ${status}.`;
+  }
+
+  const lowerResponse = responseText.toLowerCase();
+  if (lowerResponse.includes("redirect") || lowerResponse.includes("invalid_grant")) {
+    return "Tesla login failed. Check that TESLA_REDIRECT_URI exactly matches the redirect URI in Tesla Developer Console.";
+  }
+
+  return `Tesla token exchange failed with HTTP ${status}.`;
 }
 
 function getEnvironmentToken(config: AppConfig, provider: AuthProviderId): string | null {

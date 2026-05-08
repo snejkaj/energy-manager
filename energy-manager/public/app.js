@@ -22,6 +22,7 @@ try {
       setScriptStatus("DOMContentLoaded");
       uiLog("DOMContentLoaded");
       updateLocationDiagnostics();
+      refreshConfigDiagnostics();
       document.addEventListener("click", (event) => {
         const target = event.target;
         console.log("[UI] document click", target);
@@ -157,10 +158,7 @@ try {
       formatTime(data.completion.estimatedCompletionTimeMax) +
       ")";
     document.getElementById("cost").textContent = data.plan.estimatedCost + " " + (data.plan.currency || "");
-    document.getElementById("battery").textContent =
-      data.vehicleState && data.vehicleState.batterySocPercent !== null
-        ? data.vehicleState.batterySocPercent + "%"
-        : "Not connected";
+    document.getElementById("battery").textContent = formatMainBattery(data.vehicleState, data.tesla);
     document.getElementById("electricity").textContent =
       data.pricingContext.currentPrice !== null
         ? data.pricingContext.currentPrice + " " + data.pricingContext.currency + "/kWh"
@@ -289,18 +287,39 @@ try {
 
   function renderTeslaStatus(data) {
     const state = data.vehicleState || {};
-    setText("tesla-status", data.connected ? "Connected" : "Not connected");
-    setText("tesla-summary", data.warning || (data.connected ? "Tesla connected in read-only mode." : "Tesla token not configured - using demo vehicle data"));
-    setText("tesla-vehicle-name", "Vehicle: " + (data.vehicleName || state.vehicleName || "Unknown"));
+    const usingDemoData = data.usingDemoData === true || state.isDemo === true;
+    setText("tesla-status", data.connected ? "Connected" : "Tesla not connected");
+    setText(
+      "tesla-summary",
+      usingDemoData
+        ? "Using demo vehicle data"
+        : data.warning || (data.connected ? "Tesla connected in read-only mode." : "Not connected"),
+    );
+    setText("tesla-vehicle-name", "Vehicle: " + (usingDemoData ? "Demo vehicle" : data.vehicleName || state.vehicleName || "Unknown"));
     const batterySoc = data.batterySocPercent ?? state.batterySocPercent ?? null;
-    setText("tesla-battery", "Battery: " + (batterySoc === null ? "Unknown" : batterySoc + "%"));
+    setText("tesla-battery", "Battery: " + (batterySoc === null ? "Unknown" : usingDemoData ? "Demo " + batterySoc + "%" : batterySoc + "%"));
     setText("tesla-plugged-in", "Plugged in: " + yesNo(data.pluggedIn ?? state.pluggedIn));
     setText("tesla-charging-state", "Charging: " + (data.chargingState || state.chargingState || "Unknown"));
     setText("tesla-charge-limit", "Charge limit: " + formatPercent(data.chargeLimitPercent ?? state.chargeLimitPercent));
     setText("tesla-charger-power", "Charging power: " + formatNumber(data.chargerPowerKw ?? state.chargerPowerKw, " kW"));
     setText("tesla-time-to-full", "Time to full: " + formatNumber(data.timeToFullChargeHours ?? state.timeToFullChargeHours, " h"));
-    setText("tesla-online-state", "Vehicle state: " + (data.vehicleOnlineState || state.vehicleOnlineState || "Unknown"));
+    setText("tesla-online-state", "Vehicle state: " + (usingDemoData ? "Demo mode" : data.vehicleOnlineState || state.vehicleOnlineState || "Unknown"));
     setText("tesla-last-update", "Last update: " + formatTime(data.lastUpdatedAt || state.lastUpdatedAt || state.observedAt));
+  }
+
+  function formatMainBattery(vehicleState, teslaStatus) {
+    const state = vehicleState || teslaStatus?.vehicleState || {};
+    const connected = teslaStatus?.connected === true;
+    const usingDemoData = teslaStatus?.usingDemoData === true || state.isDemo === true;
+    if (state.batterySocPercent === null || state.batterySocPercent === undefined) {
+      return connected ? "Unknown" : "Tesla not connected";
+    }
+
+    if (!connected && usingDemoData) {
+      return "Demo: " + state.batterySocPercent + "%";
+    }
+
+    return connected ? state.batterySocPercent + "%" : "Tesla not connected";
   }
 
   function renderConnection(connection, provider) {
@@ -335,8 +354,27 @@ try {
       button.textContent = "Connecting...";
     }
     showToast("Opening " + providerName(provider) + " login...");
-    window.location.href = apiUrl("/api/auth/" + provider + "/start");
-    return Promise.resolve();
+    return fetchJson("/api/auth/" + provider + "/start", { method: "GET" })
+      .then((response) => response.json())
+      .then((data) => {
+        if (data.authorizationUrl) {
+          showToast("Redirecting to " + providerName(provider) + " login...");
+          window.location.href = data.authorizationUrl;
+          return;
+        }
+        if (button) {
+          button.disabled = false;
+          button.textContent = "Connect " + providerName(provider);
+        }
+        showToast(data.message || providerName(provider) + " login is not configured yet");
+      })
+      .catch((error) => {
+        if (button) {
+          button.disabled = false;
+          button.textContent = "Connect " + providerName(provider);
+        }
+        showFetchError(providerName(provider) + " login failed", error);
+      });
   }
 
   function disconnectProvider(provider) {
@@ -367,6 +405,15 @@ try {
     setDiag("diag-current-url", window.location.href);
     setDiag("diag-base-uri", document.baseURI);
     setDiag("diag-app-js-url", new URL("./app.js", document.baseURI).href);
+  }
+
+  function refreshConfigDiagnostics() {
+    return fetchJson("/debug/config")
+      .then((response) => response.json())
+      .then((data) => {
+        setDiag("diag-tesla-redirect-uri", data.teslaRedirectUri || "Not configured");
+      })
+      .catch((error) => uiWarn("Could not load config diagnostics: " + (error?.message || String(error))));
   }
 
   function showFetchError(message, error) {

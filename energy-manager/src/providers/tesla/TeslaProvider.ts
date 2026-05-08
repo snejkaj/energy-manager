@@ -102,6 +102,7 @@ export class TeslaVehicleStateProvider implements VehicleStateProvider {
       vehicleId,
       vehicleOnlineState: data.response.state ?? onlineState ?? "online",
       lastUpdatedAt: observedAt,
+      isDemo: false,
       source: "tesla",
       observedAt,
     };
@@ -157,6 +158,7 @@ function createUnavailableVehicleState(
     vehicleId,
     vehicleOnlineState: onlineState,
     lastUpdatedAt: null,
+    isDemo: false,
     source: "tesla",
     observedAt,
   };

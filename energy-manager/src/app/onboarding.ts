@@ -40,7 +40,7 @@ export function createStartupOnboarding(config: AppConfig): StartupOnboarding {
 
   if (config.teslaAccessToken === null) {
     setupMessages.push(
-      "Tesla is not connected yet. Add TESLA_ACCESS_TOKEN to show live battery level and plugged-in state.",
+      "Tesla is not connected. Demo vehicle data is used for planning.",
     );
   }
 

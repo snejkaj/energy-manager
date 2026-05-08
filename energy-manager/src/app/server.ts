@@ -110,7 +110,7 @@ export function startServer(): void {
             demoMode: onboarding.demoMode,
             warning: onboarding.demoMode ? "Demo mode uses temporary in-memory tokens only." : null,
             connections: authService.getConnectionStatuses(),
-            teslaStatus: createTeslaErrorResponse(config, error),
+            teslaStatus: createTeslaErrorResponse(config, error, authService),
           }),
         );
       return;
@@ -119,21 +119,21 @@ export function startServer(): void {
     if (request.method === "GET" && path === "/api/tesla/vehicles") {
       void getTeslaVehiclesResponse(config, authService)
         .then((payload) => writeJson(response, 200, payload))
-        .catch((error: unknown) => writeJson(response, 200, createTeslaErrorResponse(config, error)));
+        .catch((error: unknown) => writeJson(response, 200, createTeslaErrorResponse(config, error, authService)));
       return;
     }
 
     if (request.method === "GET" && (path === "/api/tesla/state" || path === "/api/tesla/status")) {
       void getTeslaStateResponse(config, authService, false)
         .then((payload) => writeJson(response, 200, payload))
-        .catch((error: unknown) => writeJson(response, 200, createTeslaErrorResponse(config, error)));
+        .catch((error: unknown) => writeJson(response, 200, createTeslaErrorResponse(config, error, authService)));
       return;
     }
 
     if (request.method === "POST" && path === "/api/tesla/refresh") {
       void getTeslaStateResponse(config, authService, true)
         .then((payload) => writeJson(response, 200, payload))
-        .catch((error: unknown) => writeJson(response, 200, createTeslaErrorResponse(config, error)));
+        .catch((error: unknown) => writeJson(response, 200, createTeslaErrorResponse(config, error, authService)));
       return;
     }
 
@@ -170,20 +170,22 @@ export function startServer(): void {
     }
 
     if (request.method === "GET" && path === "/api/auth/tesla/start") {
-      const authStart = authService.startAuth("tesla");
-      if (authStart.authorizationUrl === null) {
-        writeAuthResultHtml(response, 400, "Tesla connection is not configured yet", authStart.message);
-        return;
-      }
-
-      response.statusCode = 302;
-      response.setHeader("location", authStart.authorizationUrl);
-      response.end();
+      writeJson(response, 200, authService.startAuth("tesla"));
       return;
     }
 
     if (request.method === "GET" && (path === "/api/auth/tibber/callback" || path === "/api/auth/tesla/callback")) {
       const url = new URL(request.url ?? "/", "http://localhost");
+      const oauthError = url.searchParams.get("error");
+      if (oauthError !== null) {
+        const description = url.searchParams.get("error_description") ?? oauthError;
+        const message = description.toLowerCase().includes("redirect")
+          ? "Tesla login failed. Check that TESLA_REDIRECT_URI exactly matches the redirect URI in Tesla Developer Console."
+          : description;
+        writeAuthResultHtml(response, 400, "Connection failed", message);
+        return;
+      }
+
       const code = url.searchParams.get("code");
       const state = url.searchParams.get("state");
       if (code === null || state === null) {
@@ -319,6 +321,7 @@ interface PlanResponse {
   onboarding: ReturnType<typeof createOnboardingResponse>;
   status: ReturnType<typeof createStatusResponse>;
   vehicleState: VehicleState | null;
+  tesla: ReturnType<typeof createTeslaStatusFromState>;
   pricingContext: PricingContext;
   tibber: TibberStatus;
   providerWarnings: string[];
@@ -445,9 +448,12 @@ async function createPlanResponse(
     },
     completion,
     dailyFeedback: analyzeOutcomes(dailyOutcomes),
-    onboarding: createOnboardingResponse(onboarding),
+    onboarding: createOnboardingResponse(onboarding, vehicleState),
     status: createStatusResponse(config, onboarding, emergencyOverrideActive),
     vehicleState,
+    tesla: vehicleState === null
+      ? createTeslaDemoStatus("Tesla is not connected. Demo vehicle data is used for planning.")
+      : createTeslaStatusFromState(true, vehicleState, null),
     pricingContext: createPricingContext(currentPrice, priceProvider.metadata.displayName),
     tibber: createTibberStatus(
       config,
@@ -492,6 +498,7 @@ function createDemoPlanResponse(
     onboarding: createOnboardingResponse(onboarding),
     status: createStatusResponse(config, onboarding, emergencyOverrideActive),
     vehicleState: createDemoVehicleState(),
+    tesla: createTeslaDemoStatus(null),
     pricingContext: {
       currentPrice: 0.88,
       currency: "SEK",
@@ -517,10 +524,11 @@ function createDemoVehicleState(): VehicleState {
     chargerActualCurrent: 0,
     timeToFullChargeHours: 0,
     batteryRangeKm: 238,
-    vehicleName: "Demo Tesla",
+    vehicleName: "Demo vehicle",
     vehicleId: "demo-vehicle",
-    vehicleOnlineState: "online",
+    vehicleOnlineState: "demo",
     lastUpdatedAt: "2026-05-05T00:00:00.000Z",
+    isDemo: true,
     source: "demo",
     observedAt: "2026-05-05T00:00:00.000Z",
   };
@@ -533,7 +541,7 @@ async function getVehicleState(
 ): Promise<VehicleState | null> {
   const provider = registry.getVehicleStateProvider(config.vehicleStateProvider);
   if (provider === null) {
-    warnings.push("Tesla is disconnected. Live battery level is not available.");
+    warnings.push("Tesla is not connected. Demo vehicle data is used for planning.");
     return null;
   }
 
@@ -550,6 +558,7 @@ async function getTeslaVehiclesResponse(config: AppConfig, authService: Provider
   if (provider === null) {
     return {
       connected: false,
+      usingDemoData: true,
       warning: "Tesla token not configured - using demo vehicle data",
       vehicles: [],
     };
@@ -558,6 +567,7 @@ async function getTeslaVehiclesResponse(config: AppConfig, authService: Provider
   const vehicles = await provider.getVehicles();
   return {
     connected: true,
+    usingDemoData: false,
     warning: null,
     vehicles: vehicles.map((vehicle) => ({
       vehicleId: vehicle.id_s ?? vehicle.vin ?? String(vehicle.id ?? ""),
@@ -593,10 +603,11 @@ function createTeslaVehicleProvider(config: AppConfig, authService: ProviderAuth
   });
 }
 
-function createTeslaErrorResponse(config: AppConfig, error: unknown) {
+function createTeslaErrorResponse(config: AppConfig, error: unknown, authService?: ProviderAuthService) {
   logger.error("Tesla", `Tesla data could not be loaded: ${error instanceof Error ? error.message : "Unknown error"}`);
+  const hasToken = authService?.getAccessToken("tesla") !== null || config.teslaAccessToken !== null;
   return createTeslaDemoStatus(
-    config.teslaAccessToken === null
+    !hasToken
       ? "Tesla token not configured - using demo vehicle data"
       : `Tesla data could not be loaded: ${error instanceof Error ? error.message : "Unknown error"}`,
   );
@@ -607,13 +618,19 @@ function createTeslaDemoStatus(warning: string | null) {
 }
 
 function createTeslaStatusFromState(connected: boolean, state: VehicleState, warning: string | null) {
+  const usingDemoData = !connected || state.isDemo;
   const asleepWarning =
-    state.vehicleOnlineState !== null && state.vehicleOnlineState !== undefined && state.vehicleOnlineState !== "online"
+    connected
+    && !state.isDemo
+    && state.vehicleOnlineState !== null
+    && state.vehicleOnlineState !== undefined
+    && state.vehicleOnlineState !== "online"
       ? "Vehicle asleep - using last known state"
       : null;
 
   return {
     connected,
+    usingDemoData,
     warning: warning ?? asleepWarning,
     vehicleState: state,
     vehicleName: state.vehicleName ?? null,
@@ -627,8 +644,8 @@ function createTeslaStatusFromState(connected: boolean, state: VehicleState, war
     chargerActualCurrent: state.chargerActualCurrent ?? null,
     timeToFullChargeHours: state.timeToFullChargeHours ?? null,
     batteryRangeKm: state.batteryRangeKm ?? state.estimatedRangeKm,
-    vehicleOnlineState: state.vehicleOnlineState ?? null,
-    onlineState: state.vehicleOnlineState ?? null,
+    vehicleOnlineState: state.isDemo ? "Demo mode" : state.vehicleOnlineState ?? null,
+    onlineState: state.isDemo ? "Demo mode" : state.vehicleOnlineState ?? null,
     lastUpdatedAt: state.lastUpdatedAt ?? state.observedAt,
   };
 }
@@ -837,11 +854,14 @@ function createStatusResponse(config: AppConfig, onboarding: StartupOnboarding, 
   };
 }
 
-function createOnboardingResponse(onboarding: StartupOnboarding) {
+function createOnboardingResponse(onboarding: StartupOnboarding, vehicleState: VehicleState | null = null) {
+  const hideDisconnectedTeslaNote = vehicleState !== null && !vehicleState.isDemo && vehicleState.source === "tesla";
   return {
     demoMode: onboarding.demoMode,
     planningOnlyMode: onboarding.planningOnlyMode,
-    setupMessages: onboarding.setupMessages,
+    setupMessages: hideDisconnectedTeslaNote
+      ? onboarding.setupMessages.filter((message) => !message.startsWith("Tesla is not connected."))
+      : onboarding.setupMessages,
     setupWarnings: onboarding.setupWarnings,
   };
 }
@@ -949,6 +969,11 @@ function createConfigDiagnostics(config: AppConfig) {
     tibberAccessTokenConfigured: config.tibberAccessToken !== null,
     tibberAccessTokenLength: config.tibberAccessToken?.length ?? 0,
     tibberHomeIdConfigured: config.tibberHomeId !== null,
+    teslaClientIdConfigured: config.teslaOAuthClientId !== null,
+    teslaClientSecretConfigured: config.teslaOAuthClientSecret !== null,
+    teslaRedirectUriConfigured: config.teslaOAuthRedirectUri !== null,
+    teslaRedirectUri: config.teslaOAuthRedirectUri,
+    teslaRegion: config.teslaRegion,
   };
 }
 
@@ -1339,6 +1364,8 @@ function renderHtml(): string {
           <dd id="diag-base-uri">Unknown</dd>
           <dt>App script URL</dt>
           <dd id="diag-app-js-url">Unknown</dd>
+          <dt>Tesla redirect URI</dt>
+          <dd id="diag-tesla-redirect-uri">Not configured</dd>
         </dl>
       </div>
       <p class="ready" id="ready">Ready by 07:00</p>
@@ -1424,15 +1451,15 @@ function renderHtml(): string {
           <div>
             <span class="label">Tesla</span>
             <span class="value" id="tesla-status">Not connected</span>
-            <p class="subtle" id="tesla-summary">Uses demo car data until connected.</p>
-            <p class="subtle" id="tesla-vehicle-name">Vehicle: Demo Tesla</p>
-            <p class="subtle" id="tesla-battery">Battery: 42%</p>
+            <p class="subtle" id="tesla-summary">Using demo vehicle data</p>
+            <p class="subtle" id="tesla-vehicle-name">Vehicle: Demo vehicle</p>
+            <p class="subtle" id="tesla-battery">Battery: Demo 42%</p>
             <p class="subtle" id="tesla-plugged-in">Plugged in: yes</p>
             <p class="subtle" id="tesla-charging-state">Charging: Stopped</p>
             <p class="subtle" id="tesla-charge-limit">Charge limit: 80%</p>
             <p class="subtle" id="tesla-charger-power">Charging power: 0 kW</p>
             <p class="subtle" id="tesla-time-to-full">Time to full: 0 h</p>
-            <p class="subtle" id="tesla-online-state">Vehicle state: online</p>
+            <p class="subtle" id="tesla-online-state">Vehicle state: Demo mode</p>
             <p class="subtle" id="tesla-last-update">Last update: demo</p>
             <div class="connect-row">
               <button type="button" id="connect-tesla">Connect Tesla</button>
