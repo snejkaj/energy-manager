@@ -1,8 +1,11 @@
 // Requirements: AUTH-001, AUTH-002, AUTH-003, AUTH-004, AUTH-005, AUTH-006, AUTH-007, AUTH-008, TES-005
 
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 import type { AppConfig } from "../config.js";
+import { logger } from "../logger.js";
 
 export type AuthProviderId = "tibber" | "tesla";
 
@@ -35,6 +38,7 @@ interface PendingAuthState {
   provider: AuthProviderId;
   state: string;
   createdAt: string;
+  codeVerifier: string | null;
 }
 
 interface OAuthTokenResponse {
@@ -43,11 +47,27 @@ interface OAuthTokenResponse {
   expires_in?: number;
 }
 
+interface PersistedProviderToken {
+  provider: AuthProviderId;
+  accessToken: string;
+  refreshToken: string | null;
+  encryptedRefreshToken: string | null;
+  expiresAt: string | null;
+  connectedAt: string;
+}
+
+interface PersistedTokenStore {
+  tokens: Partial<Record<AuthProviderId, PersistedProviderToken>>;
+}
+
 export class ProviderAuthService {
   private readonly tokens = new Map<AuthProviderId, StoredProviderToken>();
   private readonly pendingStates = new Map<string, PendingAuthState>();
+  private readonly tokenStorePath = resolveTokenStorePath();
 
-  constructor(private readonly config: AppConfig) {}
+  constructor(private readonly config: AppConfig) {
+    this.loadPersistedTokens();
+  }
 
   startAuth(provider: AuthProviderId): AuthStartResult {
     const oauthConfig = getOAuthConfig(this.config, provider);
@@ -61,10 +81,12 @@ export class ProviderAuthService {
     }
 
     const state = randomUUID();
+    const pkce = provider === "tesla" ? createPkceChallenge() : null;
     this.pendingStates.set(state, {
       provider,
       state,
       createdAt: new Date().toISOString(),
+      codeVerifier: pkce?.verifier ?? null,
     });
 
     const authorizationUrl = new URL(oauthConfig.authorizationEndpoint);
@@ -76,7 +98,11 @@ export class ProviderAuthService {
 
     if (provider === "tesla") {
       authorizationUrl.searchParams.set("prompt", "login");
-      authorizationUrl.searchParams.set("audience", "https://fleet-api.prd.na.vn.cloud.tesla.com");
+      authorizationUrl.searchParams.set("audience", teslaFleetAudience(this.config.teslaRegion));
+      if (pkce !== null) {
+        authorizationUrl.searchParams.set("code_challenge", pkce.challenge);
+        authorizationUrl.searchParams.set("code_challenge_method", "S256");
+      }
     }
 
     return {
@@ -94,7 +120,7 @@ export class ProviderAuthService {
     }
     this.pendingStates.delete(state);
 
-    const tokenResponse = await this.exchangeCode(provider, code);
+    const tokenResponse = await this.exchangeCode(provider, code, pendingState);
     this.storeToken(provider, tokenResponse);
     return this.getConnectionStatus(provider);
   }
@@ -118,7 +144,7 @@ export class ProviderAuthService {
     });
 
     if (provider === "tesla") {
-      body.set("audience", "https://fleet-api.prd.na.vn.cloud.tesla.com");
+      body.set("audience", teslaFleetAudience(this.config.teslaRegion));
     }
 
     const response = await fetch(oauthConfig.tokenEndpoint, {
@@ -137,6 +163,7 @@ export class ProviderAuthService {
 
   disconnect(provider: AuthProviderId): ProviderConnectionStatus {
     this.tokens.delete(provider);
+    this.persistTokens();
     return this.getConnectionStatus(provider);
   }
 
@@ -167,7 +194,11 @@ export class ProviderAuthService {
     return this.tokens.get(provider)?.accessToken ?? getEnvironmentToken(this.config, provider);
   }
 
-  private async exchangeCode(provider: AuthProviderId, code: string): Promise<OAuthTokenResponse> {
+  private async exchangeCode(
+    provider: AuthProviderId,
+    code: string,
+    pendingState: PendingAuthState,
+  ): Promise<OAuthTokenResponse> {
     const oauthConfig = getOAuthConfig(this.config, provider);
     if (oauthConfig.clientId === null || oauthConfig.clientSecret === null || oauthConfig.redirectUri === null) {
       throw new Error(`${labelProvider(provider)} OAuth client id, secret, and redirect URI must be configured.`);
@@ -182,7 +213,11 @@ export class ProviderAuthService {
     });
 
     if (provider === "tesla") {
-      body.set("audience", "https://fleet-api.prd.na.vn.cloud.tesla.com");
+      body.set("audience", teslaFleetAudience(this.config.teslaRegion));
+      if (pendingState.codeVerifier === null) {
+        throw new Error("Tesla OAuth PKCE verifier is missing. Please start the connection again.");
+      }
+      body.set("code_verifier", pendingState.codeVerifier);
     }
 
     const response = await fetch(oauthConfig.tokenEndpoint, {
@@ -210,6 +245,56 @@ export class ProviderAuthService {
         : new Date(Date.now() + tokenResponse.expires_in * 1000).toISOString(),
       connectedAt,
     });
+    this.persistTokens();
+  }
+
+  private loadPersistedTokens(): void {
+    if (!existsSync(this.tokenStorePath)) {
+      return;
+    }
+
+    try {
+      const persisted = JSON.parse(readFileSync(this.tokenStorePath, "utf8")) as PersistedTokenStore;
+      for (const provider of ["tibber", "tesla"] as const) {
+        const token = persisted.tokens[provider];
+        if (token === undefined) {
+          continue;
+        }
+
+        this.tokens.set(provider, {
+          provider,
+          accessToken: token.accessToken,
+          refreshToken: restoreRefreshToken(token, this.config.tokenEncryptionKey),
+          encryptedRefreshToken: token.encryptedRefreshToken,
+          expiresAt: token.expiresAt,
+          connectedAt: token.connectedAt,
+        });
+      }
+      logger.info("Auth", "Loaded persisted provider connections.");
+    } catch (error) {
+      logger.error("Auth", `Provider token store could not be loaded: ${error instanceof Error ? error.message : "Unknown error"}`);
+    }
+  }
+
+  private persistTokens(): void {
+    const persisted: PersistedTokenStore = { tokens: {} };
+    for (const [provider, token] of this.tokens.entries()) {
+      persisted.tokens[provider] = {
+        provider,
+        accessToken: token.accessToken,
+        refreshToken: this.config.tokenEncryptionKey === null ? token.refreshToken : null,
+        encryptedRefreshToken: token.encryptedRefreshToken,
+        expiresAt: token.expiresAt,
+        connectedAt: token.connectedAt,
+      };
+    }
+
+    try {
+      mkdirSync(dirname(this.tokenStorePath), { recursive: true, mode: 0o700 });
+      writeFileSync(this.tokenStorePath, `${JSON.stringify(persisted, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+    } catch (error) {
+      logger.error("Auth", `Provider token store could not be written: ${error instanceof Error ? error.message : "Unknown error"}`);
+    }
   }
 }
 
@@ -230,8 +315,8 @@ function getOAuthConfig(config: AppConfig, provider: AuthProviderId) {
     clientSecret: config.teslaOAuthClientSecret,
     redirectUri: config.teslaOAuthRedirectUri,
     authorizationEndpoint: "https://auth.tesla.com/oauth2/v3/authorize",
-    tokenEndpoint: "https://fleet-auth.prd.vn.cloud.tesla.com/oauth2/v3/token",
-    scope: "openid offline_access vehicle_device_data",
+    tokenEndpoint: "https://auth.tesla.com/oauth2/v3/token",
+    scope: "openid offline_access vehicle_device_data vehicle_cmds",
   };
 }
 
@@ -241,6 +326,39 @@ function getEnvironmentToken(config: AppConfig, provider: AuthProviderId): strin
 
 function labelProvider(provider: AuthProviderId): string {
   return provider === "tibber" ? "Tibber" : "Tesla";
+}
+
+function createPkceChallenge(): { verifier: string; challenge: string } {
+  const verifier = randomBytes(64).toString("base64url");
+  return {
+    verifier,
+    challenge: createHash("sha256").update(verifier).digest("base64url"),
+  };
+}
+
+function teslaFleetAudience(region: AppConfig["teslaRegion"]): string {
+  return region === "us" || region === "na"
+    ? "https://fleet-api.prd.na.vn.cloud.tesla.com"
+    : "https://fleet-api.prd.eu.vn.cloud.tesla.com";
+}
+
+function resolveTokenStorePath(): string {
+  const configuredPath = process.env.PROVIDER_TOKEN_STORE_PATH?.trim();
+  if (configuredPath !== undefined && configuredPath !== "") {
+    return configuredPath;
+  }
+
+  return existsSync("/data")
+    ? "/data/provider_tokens.json"
+    : join(process.cwd(), "data", "provider_tokens.json");
+}
+
+function restoreRefreshToken(token: PersistedProviderToken, key: string | null): string | null {
+  if (token.encryptedRefreshToken !== null && key !== null) {
+    return decryptToken(token.encryptedRefreshToken, key);
+  }
+
+  return token.refreshToken;
 }
 
 function encryptToken(token: string, key: string | null): string | null {

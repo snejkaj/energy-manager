@@ -240,7 +240,7 @@ try {
       uiLog("clicked: " + label);
       setLastEvent("clicked: " + label);
       try {
-        const result = handler();
+        const result = handler(button, event);
         if (result && typeof result.catch === "function") {
           result.catch((error) => showFetchError(label + " failed", error));
         }
@@ -329,24 +329,21 @@ try {
       return Promise.resolve();
     }
 
-    showToast("Opening " + providerName(provider) + " connection...");
-    return fetchJson("/api/auth/" + provider + "/start", { method: "POST" })
-      .then((response) => response.json())
-      .then((data) => {
-        if (data.authorizationUrl) {
-          showToast("Redirecting to " + providerName(provider) + " login...");
-          window.location.href = data.authorizationUrl;
-          return;
-        }
-        showToast(providerName(provider) + " login is not implemented yet");
-      })
-      .catch((error) => showFetchError(providerName(provider) + " login failed", error));
+    const button = document.getElementById("connect-" + provider);
+    if (button) {
+      button.disabled = true;
+      button.textContent = "Connecting...";
+    }
+    showToast("Opening " + providerName(provider) + " login...");
+    window.location.href = apiUrl("/api/auth/" + provider + "/start");
+    return Promise.resolve();
   }
 
   function disconnectProvider(provider) {
     showToast("Disconnecting " + providerName(provider) + "...");
     return fetchJson("/api/auth/" + provider + "/disconnect", { method: "POST" })
       .then(() => refreshConnections())
+      .then(() => (provider === "tesla" ? refreshTesla(false) : null))
       .then(() => showToast(providerName(provider) + " disconnected"))
       .catch((error) => showFetchError(providerName(provider) + " disconnect failed", error));
   }

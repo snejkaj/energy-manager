@@ -169,20 +169,41 @@ export function startServer(): void {
       return;
     }
 
+    if (request.method === "GET" && path === "/api/auth/tesla/start") {
+      const authStart = authService.startAuth("tesla");
+      if (authStart.authorizationUrl === null) {
+        writeAuthResultHtml(response, 400, "Tesla connection is not configured yet", authStart.message);
+        return;
+      }
+
+      response.statusCode = 302;
+      response.setHeader("location", authStart.authorizationUrl);
+      response.end();
+      return;
+    }
+
     if (request.method === "GET" && (path === "/api/auth/tibber/callback" || path === "/api/auth/tesla/callback")) {
       const url = new URL(request.url ?? "/", "http://localhost");
       const code = url.searchParams.get("code");
       const state = url.searchParams.get("state");
       if (code === null || state === null) {
-        writeHtml(response, 400, "Connection failed. Missing OAuth code or state.");
+        writeAuthResultHtml(response, 400, "Connection failed", "Missing OAuth code or state.");
         return;
       }
 
+      const provider = getProviderFromPath(path);
       void authService
-        .handleCallback(getProviderFromPath(path), code, state)
-        .then(() => writeHtml(response, 200, "Connected. You can close this window and return to the add-on."))
+        .handleCallback(provider, code, state)
+        .then(async () => {
+          if (provider === "tesla") {
+            await getTeslaStateResponse(config, authService, true).catch((error: unknown) => {
+              logger.error("Tesla", `Tesla state fetch after OAuth failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+            });
+          }
+          writeAuthResultHtml(response, 200, `${labelProvider(provider)} connected`, "Return to the add-on to see the latest status.");
+        })
         .catch((error: unknown) =>
-          writeHtml(response, 400, error instanceof Error ? error.message : "Connection failed."),
+          writeAuthResultHtml(response, 400, "Connection failed", error instanceof Error ? error.message : "Connection failed."),
         );
       return;
     }
@@ -510,14 +531,9 @@ async function getVehicleState(
   registry: ProviderRegistry,
   warnings: string[],
 ): Promise<VehicleState | null> {
-  if (config.teslaAccessToken === null) {
-    warnings.push("Tesla is disconnected. Live battery level is not available.");
-    return null;
-  }
-
   const provider = registry.getVehicleStateProvider(config.vehicleStateProvider);
   if (provider === null) {
-    warnings.push(`Vehicle provider is unavailable: ${config.vehicleStateProvider}.`);
+    warnings.push("Tesla is disconnected. Live battery level is not available.");
     return null;
   }
 
@@ -983,8 +999,34 @@ function writeHtml(response: ServerResponse, statusCode: number, message: string
   response.end(`<!doctype html><html lang="en"><body><p>${escapeHtml(message)}</p></body></html>`);
 }
 
+function writeAuthResultHtml(response: ServerResponse, statusCode: number, title: string, message: string): void {
+  response.statusCode = statusCode;
+  response.setHeader("content-type", "text/html; charset=utf-8");
+  response.end(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${escapeHtml(title)}</title>
+    <style>
+      body { font-family: system-ui, sans-serif; line-height: 1.4; margin: 2rem; }
+      a { color: #0f766e; }
+    </style>
+  </head>
+  <body>
+    <h1>${escapeHtml(title)}</h1>
+    <p>${escapeHtml(message)}</p>
+    <p><a href="../../../">Back to Energy Manager</a></p>
+  </body>
+</html>`);
+}
+
 function getProviderFromPath(path: string): AuthProviderId {
   return path.includes("/tesla/") ? "tesla" : "tibber";
+}
+
+function labelProvider(provider: AuthProviderId): string {
+  return provider === "tibber" ? "Tibber" : "Tesla";
 }
 
 function escapeHtml(value: string): string {

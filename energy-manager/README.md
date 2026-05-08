@@ -189,12 +189,12 @@ tibber_home_id: ""
 tesla_access_token: ""
 tesla_vehicle_id: ""
 tesla_region: "eu"
+tesla_client_id: ""
+tesla_client_secret: ""
+tesla_redirect_uri: ""
 tibber_oauth_client_id: ""
 tibber_oauth_client_secret: ""
 tibber_oauth_redirect_uri: ""
-tesla_oauth_client_id: ""
-tesla_oauth_client_secret: ""
-tesla_oauth_redirect_uri: ""
 token_encryption_key: ""
 database_url: ""
 departure_time: "07:00"
@@ -207,7 +207,7 @@ charging_efficiency: "0.9"
 
 When `TIBBER_ACCESS_TOKEN` is set, the app uses Tibber as the default electricity price provider and fetches today/tomorrow prices with a personal access token. Without the token, electricity and telemetry default to mock providers for local development. Charger control defaults to planning-only mode.
 
-When `TESLA_ACCESS_TOKEN` is set, the app uses Tesla Fleet API in read-only mode to fetch battery state, plugged-in state, charging state, range, vehicle name, and online/asleep/offline state. The app does not wake the vehicle and does not send vehicle commands. `TESLA_REGION` defaults to `eu`; set it to `us` only for North America.
+Tesla can be connected from the UI with the `Connect Tesla` button after `tesla_client_id`, `tesla_client_secret`, and `tesla_redirect_uri` are configured. Tokens are stored server-side only. `tesla_access_token` is still supported for local read-only testing. The app uses Tesla Fleet API in read-only mode to fetch battery state, plugged-in state, charging state, range, vehicle name, and online/asleep/offline state. It does not wake the vehicle and does not send vehicle commands. `tesla_region` defaults to `eu`; set it to `us` only for North America.
 
 Most users do not need `tibber_home_id`.
 
@@ -401,12 +401,12 @@ http://localhost:3000/api/auth/tesla/callback
 Set:
 
 ```text
-TESLA_OAUTH_CLIENT_ID=
-TESLA_OAUTH_CLIENT_SECRET=
-TESLA_OAUTH_REDIRECT_URI=http://localhost:3000/api/auth/tesla/callback
+TESLA_CLIENT_ID=
+TESLA_CLIENT_SECRET=
+TESLA_REDIRECT_URI=http://localhost:3000/api/auth/tesla/callback
 ```
 
-The app requests read-only vehicle data scope. It does not request vehicle command or charging command scopes.
+The app requests Tesla Fleet OAuth scopes `openid offline_access vehicle_device_data vehicle_cmds` for login compatibility. The add-on remains read-only: it does not wake the vehicle, start or stop charging, set current, or send vehicle commands.
 
 ### Home Assistant Redirects
 

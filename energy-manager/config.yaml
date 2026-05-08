@@ -1,6 +1,6 @@
 # Requirements: HA-001, HA-002, HA-006, HA-007, ONB-001, ONB-002, ONB-003, ONB-004
 name: Energy Manager
-version: 0.1.4
+version: 0.1.5
 slug: energy-manager
 description: Plans EV charging from electricity prices. Starts in planning-only mode until setup is complete.
 arch:
@@ -30,6 +30,9 @@ options:
   tesla_region: "eu"
   tesla_access_token: ""
   tesla_vehicle_id: ""
+  tesla_client_id: ""
+  tesla_client_secret: ""
+  tesla_redirect_uri: ""
 schema:
   electricity_price_provider: str?
   home_telemetry_provider: str?
@@ -49,12 +52,12 @@ schema:
   tesla_access_token: password?
   tesla_vehicle_id: str?
   tesla_region: str?
+  tesla_client_id: str?
+  tesla_client_secret: password?
+  tesla_redirect_uri: str?
   tibber_oauth_client_id: str?
   tibber_oauth_client_secret: password?
   tibber_oauth_redirect_uri: str?
-  tesla_oauth_client_id: str?
-  tesla_oauth_client_secret: password?
-  tesla_oauth_redirect_uri: str?
   token_encryption_key: password?
   database_url: str?
   departure_time: str?
