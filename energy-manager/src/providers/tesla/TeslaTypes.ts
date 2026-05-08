@@ -2,7 +2,7 @@
 
 export interface TeslaVehicleSelection {
   vehicleId?: string | null;
-  region?: "eu" | "us";
+  region?: "eu" | "us" | "na";
 }
 
 export interface TeslaVehicleDataResponse {
@@ -15,6 +15,12 @@ export interface TeslaVehicleDataResponse {
     charge_state?: {
       battery_level?: number | null;
       charging_state?: string | null;
+      charge_limit_soc?: number | null;
+      charger_power?: number | null;
+      charger_voltage?: number | null;
+      charger_actual_current?: number | null;
+      time_to_full_charge?: number | null;
+      battery_range?: number | null;
       charge_port_door_open?: boolean | null;
       charge_port_latch?: string | null;
       fast_charger_present?: boolean | null;

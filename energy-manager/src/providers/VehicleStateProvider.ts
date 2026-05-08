@@ -15,6 +15,12 @@ export interface VehicleState {
   pluggedIn: boolean | null;
   chargingState: string | null;
   estimatedRangeKm: number | null;
+  chargeLimitPercent?: number | null;
+  chargerPowerKw?: number | null;
+  chargerVoltage?: number | null;
+  chargerActualCurrent?: number | null;
+  timeToFullChargeHours?: number | null;
+  batteryRangeKm?: number | null;
   vehicleName?: string | null;
   vehicleId?: string | null;
   vehicleOnlineState?: string | null;

@@ -7,7 +7,7 @@ export interface AppConfig {
   tibberHomeId: string | null;
   teslaAccessToken: string | null;
   teslaVehicleId: string | null;
-  teslaRegion: "eu" | "us";
+  teslaRegion: "eu" | "us" | "na";
   tibberOAuthClientId: string | null;
   tibberOAuthClientSecret: string | null;
   tibberOAuthRedirectUri: string | null;
@@ -93,7 +93,7 @@ function parseUserMode(value: string | undefined, setupNotes: string[]): AppConf
 
 function parseTeslaRegion(value: string | undefined, setupNotes: string[]): AppConfig["teslaRegion"] {
   const region = value === undefined || value.trim() === "" ? "eu" : value.trim().toLowerCase();
-  if (region === "eu" || region === "us") {
+  if (region === "eu" || region === "us" || region === "na") {
     return region;
   }
 

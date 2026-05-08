@@ -6,7 +6,7 @@ export interface TeslaTransport {
   get<TData>(path: string): Promise<TData>;
 }
 
-export type TeslaRegion = "eu" | "us";
+export type TeslaRegion = "eu" | "us" | "na";
 
 export class TeslaFleetApiClient implements TeslaTransport {
   constructor(
@@ -35,6 +35,7 @@ export class TeslaFleetApiClient implements TeslaTransport {
 
   private get baseUrl(): string {
     return this.region === "us"
+      || this.region === "na"
       ? "https://fleet-api.prd.na.vn.cloud.tesla.com/api/1"
       : "https://fleet-api.prd.eu.vn.cloud.tesla.com/api/1";
   }

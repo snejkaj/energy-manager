@@ -96,11 +96,23 @@ export function startServer(): void {
     }
 
     if (request.method === "GET" && path === "/api/connections") {
-      writeJson(response, 200, {
-        demoMode: onboarding.demoMode,
-        warning: onboarding.demoMode ? "Demo mode uses temporary in-memory tokens only." : null,
-        connections: authService.getConnectionStatuses(),
-      });
+      void getTeslaStateResponse(config, authService, false)
+        .then((teslaStatus) =>
+          writeJson(response, 200, {
+            demoMode: onboarding.demoMode,
+            warning: onboarding.demoMode ? "Demo mode uses temporary in-memory tokens only." : null,
+            connections: authService.getConnectionStatuses(),
+            teslaStatus,
+          }),
+        )
+        .catch((error: unknown) =>
+          writeJson(response, 200, {
+            demoMode: onboarding.demoMode,
+            warning: onboarding.demoMode ? "Demo mode uses temporary in-memory tokens only." : null,
+            connections: authService.getConnectionStatuses(),
+            teslaStatus: createTeslaErrorResponse(config, error),
+          }),
+        );
       return;
     }
 
@@ -111,7 +123,7 @@ export function startServer(): void {
       return;
     }
 
-    if (request.method === "GET" && path === "/api/tesla/state") {
+    if (request.method === "GET" && (path === "/api/tesla/state" || path === "/api/tesla/status")) {
       void getTeslaStateResponse(config, authService, false)
         .then((payload) => writeJson(response, 200, payload))
         .catch((error: unknown) => writeJson(response, 200, createTeslaErrorResponse(config, error)));
@@ -478,6 +490,12 @@ function createDemoVehicleState(): VehicleState {
     pluggedIn: true,
     chargingState: "Stopped",
     estimatedRangeKm: 238,
+    chargeLimitPercent: 80,
+    chargerPowerKw: 0,
+    chargerVoltage: 0,
+    chargerActualCurrent: 0,
+    timeToFullChargeHours: 0,
+    batteryRangeKm: 238,
     vehicleName: "Demo Tesla",
     vehicleId: "demo-vehicle",
     vehicleOnlineState: "online",
@@ -587,7 +605,14 @@ function createTeslaStatusFromState(connected: boolean, state: VehicleState, war
     batterySocPercent: state.batterySocPercent,
     pluggedIn: state.pluggedIn,
     chargingState: state.chargingState,
+    chargeLimitPercent: state.chargeLimitPercent ?? null,
+    chargerPowerKw: state.chargerPowerKw ?? null,
+    chargerVoltage: state.chargerVoltage ?? null,
+    chargerActualCurrent: state.chargerActualCurrent ?? null,
+    timeToFullChargeHours: state.timeToFullChargeHours ?? null,
+    batteryRangeKm: state.batteryRangeKm ?? state.estimatedRangeKm,
     vehicleOnlineState: state.vehicleOnlineState ?? null,
+    onlineState: state.vehicleOnlineState ?? null,
     lastUpdatedAt: state.lastUpdatedAt ?? state.observedAt,
   };
 }
@@ -1362,6 +1387,9 @@ function renderHtml(): string {
             <p class="subtle" id="tesla-battery">Battery: 42%</p>
             <p class="subtle" id="tesla-plugged-in">Plugged in: yes</p>
             <p class="subtle" id="tesla-charging-state">Charging: Stopped</p>
+            <p class="subtle" id="tesla-charge-limit">Charge limit: 80%</p>
+            <p class="subtle" id="tesla-charger-power">Charging power: 0 kW</p>
+            <p class="subtle" id="tesla-time-to-full">Time to full: 0 h</p>
             <p class="subtle" id="tesla-online-state">Vehicle state: online</p>
             <p class="subtle" id="tesla-last-update">Last update: demo</p>
             <div class="connect-row">

@@ -19,6 +19,12 @@ describe("TeslaVehicleStateProvider", () => {
           charge_state: {
             battery_level: 64,
             charging_state: "Stopped",
+            charge_limit_soc: 80,
+            charger_power: 7,
+            charger_voltage: 230,
+            charger_actual_current: 32,
+            time_to_full_charge: 1.25,
+            battery_range: 180,
             est_battery_range: 181.2,
           },
         },
@@ -34,6 +40,12 @@ describe("TeslaVehicleStateProvider", () => {
       vehicleName: "Model Y",
       vehicleId: "vehicle-2",
       vehicleOnlineState: "online",
+      chargeLimitPercent: 80,
+      chargerPowerKw: 7,
+      chargerVoltage: 230,
+      chargerActualCurrent: 32,
+      timeToFullChargeHours: 1.25,
+      batteryRangeKm: 289.7,
     });
   });
 

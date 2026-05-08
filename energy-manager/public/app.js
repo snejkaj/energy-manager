@@ -296,6 +296,9 @@ try {
     setText("tesla-battery", "Battery: " + (batterySoc === null ? "Unknown" : batterySoc + "%"));
     setText("tesla-plugged-in", "Plugged in: " + yesNo(data.pluggedIn ?? state.pluggedIn));
     setText("tesla-charging-state", "Charging: " + (data.chargingState || state.chargingState || "Unknown"));
+    setText("tesla-charge-limit", "Charge limit: " + formatPercent(data.chargeLimitPercent ?? state.chargeLimitPercent));
+    setText("tesla-charger-power", "Charging power: " + formatNumber(data.chargerPowerKw ?? state.chargerPowerKw, " kW"));
+    setText("tesla-time-to-full", "Time to full: " + formatNumber(data.timeToFullChargeHours ?? state.timeToFullChargeHours, " h"));
     setText("tesla-online-state", "Vehicle state: " + (data.vehicleOnlineState || state.vehicleOnlineState || "Unknown"));
     setText("tesla-last-update", "Last update: " + formatTime(data.lastUpdatedAt || state.lastUpdatedAt || state.observedAt));
   }
@@ -475,6 +478,14 @@ try {
     if (value === true) return "yes";
     if (value === false) return "no";
     return "Unknown";
+  }
+
+  function formatPercent(value) {
+    return value === null || value === undefined ? "Unknown" : value + "%";
+  }
+
+  function formatNumber(value, unit) {
+    return value === null || value === undefined ? "Unknown" : value + unit;
   }
 
   let toastTimer;
