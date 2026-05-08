@@ -164,6 +164,20 @@ export function startServer(): void {
       return;
     }
 
+    if (request.method === "GET" && path === "/debug/tesla/authorization-url") {
+      const authStart = authService.startAuth("tesla");
+      logTeslaAuthStart(authStart);
+      const validation = validateTeslaAuthorizationUrl(authStart.authorizationUrl);
+      writeJson(response, 200, {
+        valid: validation.valid,
+        authorizationUrl: authStart.authorizationUrl,
+        missing: validation.missing,
+        redirectUri: authStart.redirectUri,
+        scopes: authStart.scopes,
+      });
+      return;
+    }
+
     if (request.method === "GET" && path === "/debug/html") {
       writeText(response, 200, renderHtml());
       return;
@@ -1107,12 +1121,24 @@ function writeTeslaStartDebugHtml(
 ): void {
   response.statusCode = 200;
   response.setHeader("content-type", "text/html; charset=utf-8");
+  const validation = validateTeslaAuthorizationUrl(authStart.authorizationUrl);
   const missing = diagnostics.missingConfig.length === 0
     ? "<li>None</li>"
     : diagnostics.missingConfig.map((message) => `<li>${escapeHtml(message)}</li>`).join("");
-  const authUrl = authStart.authorizationUrl === null
+  const validationErrors = validation.missing.length === 0
+    ? "<li>None</li>"
+    : validation.missing.map((message) => `<li>${escapeHtml(message)}</li>`).join("");
+  const escapedAuthorizationUrl = authStart.authorizationUrl === null ? "" : escapeHtml(authStart.authorizationUrl);
+  const authUrlControls = authStart.authorizationUrl === null
     ? "<p>No authorization URL generated.</p>"
-    : `<p><a href="${escapeHtml(authStart.authorizationUrl)}">Open Tesla login</a></p>`;
+    : `<label for="authorization-url">Generated authorization URL</label>
+    <textarea id="authorization-url" rows="8" readonly>${escapedAuthorizationUrl}</textarea>
+    <p><button type="button" id="copy-authorization-url">Copy authorization URL</button></p>
+    <p><a id="open-authorization-url" href="${escapedAuthorizationUrl}">Open Tesla login</a></p>
+    <dl>
+      <dt>Raw link href</dt><dd>${escapedAuthorizationUrl}</dd>
+    </dl>`;
+  logger.info("TeslaAuth", `generated authorizationUrl value=${authStart.authorizationUrl ?? "not generated"}`);
   response.end(`<!doctype html>
 <html lang="en">
   <head>
@@ -1123,6 +1149,8 @@ function writeTeslaStartDebugHtml(
       body { font-family: system-ui, sans-serif; line-height: 1.4; margin: 2rem; }
       dt { font-weight: 700; margin-top: 0.75rem; }
       dd { margin-left: 0; overflow-wrap: anywhere; }
+      textarea { box-sizing: border-box; font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; max-width: 100%; width: 100%; }
+      button { cursor: pointer; padding: 0.65rem 0.9rem; }
       a { color: #0f766e; }
     </style>
   </head>
@@ -1136,11 +1164,31 @@ function writeTeslaStartDebugHtml(
       <dt>Scopes</dt><dd>${escapeHtml(diagnostics.scopes.join(" "))}</dd>
       <dt>Authorization URL generated</dt><dd>${authStart.authorizationUrl === null ? "no" : "yes"}</dd>
       <dt>State generated</dt><dd>${authStart.stateGenerated ? "yes" : "no"}</dd>
+      <dt>Authorization URL valid</dt><dd>${validation.valid ? "yes" : "no"}</dd>
     </dl>
     <h2>Missing config</h2>
     <ul>${missing}</ul>
-    ${authUrl}
+    <h2>Authorization URL validation</h2>
+    <ul>${validationErrors}</ul>
+    ${authUrlControls}
     <p><a href="${escapeHtml(backHref)}">Back to Energy Manager</a></p>
+    <script>
+      const button = document.getElementById("copy-authorization-url");
+      if (button) {
+        button.addEventListener("click", async () => {
+          const textarea = document.getElementById("authorization-url");
+          if (!textarea) return;
+          try {
+            await navigator.clipboard.writeText(textarea.value);
+            button.textContent = "Copied";
+          } catch (_error) {
+            textarea.select();
+            document.execCommand("copy");
+            button.textContent = "Copied";
+          }
+        });
+      }
+    </script>
   </body>
 </html>`);
 }
@@ -1152,6 +1200,42 @@ function logTeslaAuthStart(authStart: AuthStartResult): void {
   logger.info("TeslaAuth", `redirect_uri used=${authStart.redirectUri ?? "not configured"}`);
   logger.info("TeslaAuth", `scopes used=${authStart.scopes.join(" ")}`);
   logger.info("TeslaAuth", `state generated=${authStart.stateGenerated ? "yes" : "no"}`);
+}
+
+function validateTeslaAuthorizationUrl(authorizationUrl: string | null): { valid: boolean; missing: string[] } {
+  const missing: string[] = [];
+  if (authorizationUrl === null) {
+    return { valid: false, missing: ["Authorization URL was not generated."] };
+  }
+
+  let url: URL;
+  try {
+    url = new URL(authorizationUrl);
+  } catch {
+    return { valid: false, missing: ["Authorization URL is not a valid URL."] };
+  }
+
+  if (url.origin !== "https://auth.tesla.com") {
+    missing.push("Authorization URL host must be https://auth.tesla.com.");
+  }
+  if (url.pathname !== "/oauth2/v3/authorize") {
+    missing.push("Authorization URL path must be /oauth2/v3/authorize.");
+  }
+
+  for (const parameter of ["client_id", "redirect_uri", "scope", "state", "code_challenge"] as const) {
+    if ((url.searchParams.get(parameter) ?? "") === "") {
+      missing.push(`Missing ${parameter}.`);
+    }
+  }
+
+  if (url.searchParams.get("response_type") !== "code") {
+    missing.push("response_type must be code.");
+  }
+  if (url.searchParams.get("code_challenge_method") !== "S256") {
+    missing.push("code_challenge_method must be S256.");
+  }
+
+  return { valid: missing.length === 0, missing };
 }
 
 function createBackHref(path: string): string {
