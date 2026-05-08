@@ -23,8 +23,24 @@ export interface ProviderConnectionStatus {
 export interface AuthStartResult {
   provider: AuthProviderId;
   authorizationUrl: string | null;
+  configured: boolean;
+  redirectUri: string | null;
+  scopes: string[];
+  stateGenerated: boolean;
+  missingConfig: string[];
   setupRequired: boolean;
   message: string;
+}
+
+export interface ProviderOAuthDiagnostics {
+  provider: AuthProviderId;
+  configured: boolean;
+  clientIdConfigured: boolean;
+  clientSecretConfigured: boolean;
+  redirectUriConfigured: boolean;
+  redirectUri: string | null;
+  scopes: string[];
+  missingConfig: string[];
 }
 
 interface StoredProviderToken {
@@ -74,10 +90,21 @@ export class ProviderAuthService {
   startAuth(provider: AuthProviderId): AuthStartResult {
     const oauthConfig = getOAuthConfig(this.config, provider);
     const missingConfig = getMissingOAuthConfig(this.config, provider);
+    logger.info("Auth", `${labelProvider(provider)} OAuth start called`);
+    logger.info("Auth", `${labelProvider(provider)} OAuth configured=${missingConfig.length === 0}`);
+    logger.info("Auth", `${labelProvider(provider)} OAuth redirect_uri=${oauthConfig.redirectUri ?? "not configured"}`);
+    logger.info("Auth", `${labelProvider(provider)} OAuth scopes=${oauthConfig.scope}`);
     if (missingConfig.length > 0) {
+      logger.info("Auth", `${labelProvider(provider)} OAuth generated authorizationUrl=no`);
+      logger.info("Auth", `${labelProvider(provider)} OAuth state generated=no`);
       return {
         provider,
         authorizationUrl: null,
+        configured: false,
+        redirectUri: oauthConfig.redirectUri,
+        scopes: oauthConfig.scope.split(" "),
+        stateGenerated: false,
+        missingConfig,
         setupRequired: true,
         message: missingConfig.join(". "),
       };
@@ -91,6 +118,7 @@ export class ProviderAuthService {
     }
 
     const state = randomUUID();
+    logger.info("Auth", `${labelProvider(provider)} OAuth state generated=yes`);
     const pkce = provider === "tesla" ? createPkceChallenge() : null;
     this.pendingStates.set(state, {
       provider,
@@ -119,8 +147,28 @@ export class ProviderAuthService {
     return {
       provider,
       authorizationUrl: authorizationUrl.toString(),
+      configured: true,
+      redirectUri: oauthConfig.redirectUri,
+      scopes: oauthConfig.scope.split(" "),
+      stateGenerated: true,
+      missingConfig: [],
       setupRequired: false,
       message: `Opening ${labelProvider(provider)} sign in.`,
+    };
+  }
+
+  getOAuthDiagnostics(provider: AuthProviderId): ProviderOAuthDiagnostics {
+    const oauthConfig = getOAuthConfig(this.config, provider);
+    const missingConfig = getMissingOAuthConfig(this.config, provider);
+    return {
+      provider,
+      configured: missingConfig.length === 0,
+      clientIdConfigured: oauthConfig.clientId !== null,
+      clientSecretConfigured: oauthConfig.clientSecret !== null,
+      redirectUriConfigured: oauthConfig.redirectUri !== null,
+      redirectUri: oauthConfig.redirectUri,
+      scopes: oauthConfig.scope.split(" "),
+      missingConfig,
     };
   }
 

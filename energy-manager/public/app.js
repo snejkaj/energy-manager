@@ -349,6 +349,7 @@ try {
       return Promise.resolve();
     }
 
+    uiLog("Connect Tesla button clicked");
     const button = document.getElementById("connect-" + provider);
     if (button) {
       button.disabled = true;
@@ -358,6 +359,8 @@ try {
     return fetchJson("/api/auth/" + provider + "/start", { method: "GET" })
       .then((response) => response.json())
       .then((data) => {
+        setDiag("diag-tesla-oauth-configured", data.configured ? "yes" : "no");
+        setDiag("diag-tesla-redirect-uri", data.redirectUri || "Not configured");
         if (data.authorizationUrl) {
           showToast("Redirecting to " + providerName(provider) + " login...");
           window.location.href = data.authorizationUrl;
@@ -367,13 +370,17 @@ try {
           button.disabled = false;
           button.textContent = "Connect " + providerName(provider);
         }
-        showToast(data.message || providerName(provider) + " login is not configured yet");
+        const message = data.message || providerName(provider) + " login is not configured yet";
+        setDiag("diag-tesla-oauth-error", message);
+        showUiError(new Error(message));
+        showToast(message);
       })
       .catch((error) => {
         if (button) {
           button.disabled = false;
           button.textContent = "Connect " + providerName(provider);
         }
+        setDiag("diag-tesla-oauth-error", error?.message || String(error));
         showFetchError(providerName(provider) + " login failed", error);
       });
   }
@@ -413,6 +420,11 @@ try {
       .then((response) => response.json())
       .then((data) => {
         setDiag("diag-tesla-redirect-uri", data.teslaRedirectUri || "Not configured");
+        setDiag("diag-tesla-oauth-configured", data.teslaOAuthConfigured ? "yes" : "no");
+        const debugLink = document.getElementById("tesla-oauth-debug-link");
+        if (debugLink) {
+          debugLink.setAttribute("href", apiUrl("/auth/tesla/start-debug"));
+        }
       })
       .catch((error) => uiWarn("Could not load config diagnostics: " + (error?.message || String(error))));
   }

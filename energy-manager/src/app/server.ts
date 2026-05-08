@@ -22,7 +22,12 @@ import { TibberGraphQLClient } from "../providers/tibber/TibberClient.js";
 import { TibberHomeTelemetryProvider, TibberPriceProvider } from "../providers/tibber/TibberProvider.js";
 import type { TibberHomeSelectionInfo } from "../providers/tibber/TibberTypes.js";
 import type { VehicleState } from "../providers/VehicleStateProvider.js";
-import { ProviderAuthService, type AuthProviderId } from "./auth/ProviderAuthService.js";
+import {
+  ProviderAuthService,
+  type AuthProviderId,
+  type AuthStartResult,
+  type ProviderOAuthDiagnostics,
+} from "./auth/ProviderAuthService.js";
 import { loadConfig, type AppConfig } from "./config.js";
 import { logger } from "./logger.js";
 import { assertStartupIsReady, createStartupOnboarding, type StartupOnboarding } from "./onboarding.js";
@@ -165,16 +170,32 @@ export function startServer(): void {
     }
 
     if (request.method === "POST" && (path === "/api/auth/tibber/start" || path === "/api/auth/tesla/start")) {
-      writeJson(response, 200, authService.startAuth(getProviderFromPath(path)));
+      const provider = getProviderFromPath(path);
+      const authStart = authService.startAuth(provider);
+      if (provider === "tesla") {
+        logTeslaAuthStart(authStart);
+      }
+      writeJson(response, 200, authStart);
       return;
     }
 
     if (request.method === "GET" && path === "/api/auth/tesla/start") {
-      writeJson(response, 200, authService.startAuth("tesla"));
+      const authStart = authService.startAuth("tesla");
+      logTeslaAuthStart(authStart);
+      writeJson(response, 200, authStart);
+      return;
+    }
+
+    if (request.method === "GET" && path === "/auth/tesla/start-debug") {
+      const diagnostics = authService.getOAuthDiagnostics("tesla");
+      const authStart = authService.startAuth("tesla");
+      logTeslaAuthStart(authStart);
+      writeTeslaStartDebugHtml(response, diagnostics, authStart, createBackHref(path));
       return;
     }
 
     if (request.method === "GET" && (path === "/api/auth/tibber/callback" || path === "/api/auth/tesla/callback")) {
+      logger.info("Auth", `${labelProvider(getProviderFromPath(path))} callback hit=yes`);
       const url = new URL(request.url ?? "/", "http://localhost");
       const oauthError = url.searchParams.get("error");
       if (oauthError !== null) {
@@ -182,30 +203,45 @@ export function startServer(): void {
         const message = description.toLowerCase().includes("redirect")
           ? "Tesla login failed. Check that TESLA_REDIRECT_URI exactly matches the redirect URI in Tesla Developer Console."
           : description;
-        writeAuthResultHtml(response, 400, "Connection failed", message);
+        writeAuthResultHtml(response, 400, "Tesla connection failed", [
+          `Error code: ${oauthError}`,
+          `Description: ${message}`,
+          `Redirect URI used: ${config.teslaOAuthRedirectUri ?? "not configured"}`,
+        ], createBackHref(path));
         return;
       }
 
       const code = url.searchParams.get("code");
       const state = url.searchParams.get("state");
       if (code === null || state === null) {
-        writeAuthResultHtml(response, 400, "Connection failed", "Missing OAuth code or state.");
+        writeAuthResultHtml(response, 400, "Tesla connection failed", [
+          "Missing OAuth code or state.",
+          `Redirect URI used: ${config.teslaOAuthRedirectUri ?? "not configured"}`,
+        ], createBackHref(path));
         return;
       }
 
       const provider = getProviderFromPath(path);
+      let vehicleFetchAttempted = false;
       void authService
         .handleCallback(provider, code, state)
         .then(async () => {
           if (provider === "tesla") {
+            vehicleFetchAttempted = true;
             await getTeslaStateResponse(config, authService, true).catch((error: unknown) => {
               logger.error("Tesla", `Tesla state fetch after OAuth failed: ${error instanceof Error ? error.message : "Unknown error"}`);
             });
           }
-          writeAuthResultHtml(response, 200, `${labelProvider(provider)} connected`, "Return to the add-on to see the latest status.");
+          writeAuthResultHtml(response, 200, `${labelProvider(provider)} connected`, [
+            provider === "tesla" ? `Vehicle fetch attempted: ${vehicleFetchAttempted ? "yes" : "no"}` : "Connection completed.",
+            "Return to the add-on to see the latest status.",
+          ], createBackHref(path));
         })
         .catch((error: unknown) =>
-          writeAuthResultHtml(response, 400, "Connection failed", error instanceof Error ? error.message : "Connection failed."),
+          writeAuthResultHtml(response, 400, `${labelProvider(provider)} connection failed`, [
+            `Error: ${error instanceof Error ? error.message : "Connection failed."}`,
+            `Redirect URI used: ${provider === "tesla" ? config.teslaOAuthRedirectUri ?? "not configured" : config.tibberOAuthRedirectUri ?? "not configured"}`,
+          ], createBackHref(path)),
         );
       return;
     }
@@ -1034,9 +1070,16 @@ function writeHtml(response: ServerResponse, statusCode: number, message: string
   response.end(`<!doctype html><html lang="en"><body><p>${escapeHtml(message)}</p></body></html>`);
 }
 
-function writeAuthResultHtml(response: ServerResponse, statusCode: number, title: string, message: string): void {
+function writeAuthResultHtml(
+  response: ServerResponse,
+  statusCode: number,
+  title: string,
+  messages: string[],
+  backHref: string,
+): void {
   response.statusCode = statusCode;
   response.setHeader("content-type", "text/html; charset=utf-8");
+  const items = messages.map((message) => `<li>${escapeHtml(message)}</li>`).join("");
   response.end(`<!doctype html>
 <html lang="en">
   <head>
@@ -1050,10 +1093,77 @@ function writeAuthResultHtml(response: ServerResponse, statusCode: number, title
   </head>
   <body>
     <h1>${escapeHtml(title)}</h1>
-    <p>${escapeHtml(message)}</p>
-    <p><a href="../../../">Back to Energy Manager</a></p>
+    <ul>${items}</ul>
+    <p><a href="${escapeHtml(backHref)}">Back to Energy Manager</a></p>
   </body>
 </html>`);
+}
+
+function writeTeslaStartDebugHtml(
+  response: ServerResponse,
+  diagnostics: ProviderOAuthDiagnostics,
+  authStart: AuthStartResult,
+  backHref: string,
+): void {
+  response.statusCode = 200;
+  response.setHeader("content-type", "text/html; charset=utf-8");
+  const missing = diagnostics.missingConfig.length === 0
+    ? "<li>None</li>"
+    : diagnostics.missingConfig.map((message) => `<li>${escapeHtml(message)}</li>`).join("");
+  const authUrl = authStart.authorizationUrl === null
+    ? "<p>No authorization URL generated.</p>"
+    : `<p><a href="${escapeHtml(authStart.authorizationUrl)}">Open Tesla login</a></p>`;
+  response.end(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tesla OAuth debug</title>
+    <style>
+      body { font-family: system-ui, sans-serif; line-height: 1.4; margin: 2rem; }
+      dt { font-weight: 700; margin-top: 0.75rem; }
+      dd { margin-left: 0; overflow-wrap: anywhere; }
+      a { color: #0f766e; }
+    </style>
+  </head>
+  <body>
+    <h1>Tesla OAuth debug</h1>
+    <dl>
+      <dt>OAuth configured</dt><dd>${diagnostics.configured ? "yes" : "no"}</dd>
+      <dt>Client ID configured</dt><dd>${diagnostics.clientIdConfigured ? "yes" : "no"}</dd>
+      <dt>Client secret configured</dt><dd>${diagnostics.clientSecretConfigured ? "yes" : "no"}</dd>
+      <dt>Redirect URI</dt><dd>${escapeHtml(diagnostics.redirectUri ?? "not configured")}</dd>
+      <dt>Scopes</dt><dd>${escapeHtml(diagnostics.scopes.join(" "))}</dd>
+      <dt>Authorization URL generated</dt><dd>${authStart.authorizationUrl === null ? "no" : "yes"}</dd>
+      <dt>State generated</dt><dd>${authStart.stateGenerated ? "yes" : "no"}</dd>
+    </dl>
+    <h2>Missing config</h2>
+    <ul>${missing}</ul>
+    ${authUrl}
+    <p><a href="${escapeHtml(backHref)}">Back to Energy Manager</a></p>
+  </body>
+</html>`);
+}
+
+function logTeslaAuthStart(authStart: AuthStartResult): void {
+  logger.info("TeslaAuth", `/api/auth/tesla/start called`);
+  logger.info("TeslaAuth", `OAuth configured=${authStart.configured}`);
+  logger.info("TeslaAuth", `generated authorizationUrl=${authStart.authorizationUrl === null ? "no" : "yes"}`);
+  logger.info("TeslaAuth", `redirect_uri used=${authStart.redirectUri ?? "not configured"}`);
+  logger.info("TeslaAuth", `scopes used=${authStart.scopes.join(" ")}`);
+  logger.info("TeslaAuth", `state generated=${authStart.stateGenerated ? "yes" : "no"}`);
+}
+
+function createBackHref(path: string): string {
+  if (path.startsWith("/api/auth/")) {
+    return "../../../";
+  }
+
+  if (path.startsWith("/auth/")) {
+    return "../../";
+  }
+
+  return "./";
 }
 
 function getProviderFromPath(path: string): AuthProviderId {
@@ -1376,7 +1486,12 @@ function renderHtml(): string {
           <dd id="diag-app-js-url">Unknown</dd>
           <dt>Tesla redirect URI</dt>
           <dd id="diag-tesla-redirect-uri">Not configured</dd>
+          <dt>Tesla OAuth configured</dt>
+          <dd id="diag-tesla-oauth-configured">Unknown</dd>
+          <dt>Last Tesla OAuth error</dt>
+          <dd id="diag-tesla-oauth-error">None</dd>
         </dl>
+        <p><a id="tesla-oauth-debug-link" href="./auth/tesla/start-debug">Open Tesla OAuth debug</a></p>
       </div>
       <p class="ready" id="ready">Ready by 07:00</p>
       <p class="subtle" id="next-trip">Typical weekday trip at 07:00</p>
