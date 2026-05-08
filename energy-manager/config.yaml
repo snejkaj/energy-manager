@@ -1,6 +1,6 @@
 # Requirements: HA-001, HA-002, HA-006, HA-007, ONB-001, ONB-002, ONB-003, ONB-004
 name: Energy Manager
-version: 0.1.3
+version: 0.1.4
 slug: energy-manager
 description: Plans EV charging from electricity prices. Starts in planning-only mode until setup is complete.
 arch:
