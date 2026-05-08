@@ -279,10 +279,10 @@ function createProviderRegistry(
     registry.registerHomeTelemetryProvider(new TibberHomeTelemetryProvider(tibberClient, selection));
   }
 
-  const teslaAccessToken = authService?.getAccessToken("tesla") ?? config.teslaAccessToken;
-  if (teslaAccessToken !== null) {
+  const teslaOAuthToken = authService?.getAccessToken("tesla") ?? null;
+  if (teslaOAuthToken !== null) {
     registry.registerVehicleStateProvider(
-      new TeslaVehicleStateProvider(new TeslaClient(teslaAccessToken, config.teslaRegion), {
+      new TeslaVehicleStateProvider(new TeslaClient(teslaOAuthToken, config.teslaRegion), {
         vehicleId: config.teslaVehicleId,
         region: config.teslaRegion,
       }),
@@ -539,7 +539,9 @@ async function getVehicleState(
   registry: ProviderRegistry,
   warnings: string[],
 ): Promise<VehicleState | null> {
-  const provider = registry.getVehicleStateProvider(config.vehicleStateProvider);
+  const provider =
+    registry.getVehicleStateProvider(config.vehicleStateProvider)
+    ?? registry.getVehicleStateProvider("tesla");
   if (provider === null) {
     warnings.push("Tesla is not connected. Demo vehicle data is used for planning.");
     return null;
@@ -559,7 +561,7 @@ async function getTeslaVehiclesResponse(config: AppConfig, authService: Provider
     return {
       connected: false,
       usingDemoData: true,
-      warning: "Tesla token not configured - using demo vehicle data",
+      warning: "Tesla is not connected. Click Connect Tesla to sign in.",
       vehicles: [],
     };
   }
@@ -580,7 +582,7 @@ async function getTeslaVehiclesResponse(config: AppConfig, authService: Provider
 async function getTeslaStateResponse(config: AppConfig, authService: ProviderAuthService, forceRefresh: boolean) {
   const provider = createTeslaVehicleProvider(config, authService);
   if (provider === null) {
-    return createTeslaDemoStatus("Tesla token not configured - using demo vehicle data");
+    return createTeslaDemoStatus("Tesla is not connected. Click Connect Tesla to sign in.");
   }
 
   const state = await provider.getVehicleState({ forceRefresh });
@@ -592,7 +594,7 @@ async function getTeslaStateResponse(config: AppConfig, authService: ProviderAut
 }
 
 function createTeslaVehicleProvider(config: AppConfig, authService: ProviderAuthService): TeslaVehicleStateProvider | null {
-  const accessToken = authService.getAccessToken("tesla") ?? config.teslaAccessToken;
+  const accessToken = authService.getAccessToken("tesla");
   if (accessToken === null) {
     return null;
   }
@@ -603,12 +605,12 @@ function createTeslaVehicleProvider(config: AppConfig, authService: ProviderAuth
   });
 }
 
-function createTeslaErrorResponse(config: AppConfig, error: unknown, authService?: ProviderAuthService) {
+function createTeslaErrorResponse(_config: AppConfig, error: unknown, authService?: ProviderAuthService) {
   logger.error("Tesla", `Tesla data could not be loaded: ${error instanceof Error ? error.message : "Unknown error"}`);
-  const hasToken = authService?.getAccessToken("tesla") !== null || config.teslaAccessToken !== null;
+  const hasToken = authService?.getAccessToken("tesla") !== null;
   return createTeslaDemoStatus(
     !hasToken
-      ? "Tesla token not configured - using demo vehicle data"
+      ? "Tesla is not connected. Click Connect Tesla to sign in."
       : `Tesla data could not be loaded: ${error instanceof Error ? error.message : "Unknown error"}`,
   );
 }
@@ -958,19 +960,27 @@ function logIntegrationSetupStatus(config: AppConfig): void {
   const chargerStatus = config.chargerProvider === "mock-charger" ? "mock-charger" : "planning-only";
 
   logger.info("Setup", `Tibber: ${config.tibberAccessToken !== null ? "configured" : "missing"}`);
-  logger.info("Setup", `Tesla: ${config.teslaAccessToken !== null ? "configured" : "missing"}`);
+  logger.info("Setup", `Tesla OAuth: ${config.teslaOAuthClientId !== null && config.teslaOAuthClientSecret !== null && config.teslaOAuthRedirectUri !== null ? "configured" : "missing"}`);
   logger.info("Setup", `Weather: ${weatherConfigured ? "configured" : "missing"}`);
   logger.info("Setup", `Solar: ${solarConfigured ? "configured" : "missing"}`);
   logger.info("Setup", `Charger: ${chargerStatus}`);
 }
 
 function createConfigDiagnostics(config: AppConfig) {
+  const teslaOAuthConfigured =
+    config.teslaOAuthClientId !== null
+    && config.teslaOAuthClientSecret !== null
+    && config.teslaOAuthRedirectUri !== null;
+
   return {
     tibberAccessTokenConfigured: config.tibberAccessToken !== null,
     tibberAccessTokenLength: config.tibberAccessToken?.length ?? 0,
     tibberHomeIdConfigured: config.tibberHomeId !== null,
+    teslaOAuthConfigured,
     teslaClientIdConfigured: config.teslaOAuthClientId !== null,
+    teslaClientIdLength: config.teslaOAuthClientId?.length ?? 0,
     teslaClientSecretConfigured: config.teslaOAuthClientSecret !== null,
+    teslaClientSecretLength: config.teslaOAuthClientSecret?.length ?? 0,
     teslaRedirectUriConfigured: config.teslaOAuthRedirectUri !== null,
     teslaRedirectUri: config.teslaOAuthRedirectUri,
     teslaRegion: config.teslaRegion,

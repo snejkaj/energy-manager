@@ -59,14 +59,12 @@ describe("loadConfig", () => {
     expect(config.teslaRegion).toBe("eu");
   });
 
-  it("uses live Tesla and weather providers only when enough config exists", () => {
+  it("uses live weather provider only when enough config exists", () => {
     const config = loadConfig({
-      TESLA_ACCESS_TOKEN: "token",
       WEATHER_LATITUDE: "59.33",
       WEATHER_LONGITUDE: "18.06",
     });
 
-    expect(config.vehicleStateProvider).toBe("tesla");
     expect(config.weatherForecastProvider).toBe("open-meteo");
   });
 
@@ -99,13 +97,25 @@ describe("loadConfig", () => {
 
   it("accepts Tesla OAuth environment names", () => {
     const config = loadConfig({
-      TESLA_CLIENT_ID: "client-id",
-      TESLA_CLIENT_SECRET: "secret",
-      TESLA_REDIRECT_URI: "https://example.test/api/auth/tesla/callback",
+      TESLA_CLIENT_ID: " client-id ",
+      TESLA_CLIENT_SECRET: " secret ",
+      TESLA_REDIRECT_URI: " https://example.test/api/auth/tesla/callback ",
     });
 
     expect(config.teslaOAuthClientId).toBe("client-id");
     expect(config.teslaOAuthClientSecret).toBe("secret");
     expect(config.teslaOAuthRedirectUri).toBe("https://example.test/api/auth/tesla/callback");
+  });
+
+  it("does not use legacy Tesla OAuth environment aliases", () => {
+    const config = loadConfig({
+      TESLA_OAUTH_CLIENT_ID: "legacy-client-id",
+      TESLA_OAUTH_CLIENT_SECRET: "legacy-secret",
+      TESLA_OAUTH_REDIRECT_URI: "https://example.test/legacy",
+    });
+
+    expect(config.teslaOAuthClientId).toBeNull();
+    expect(config.teslaOAuthClientSecret).toBeNull();
+    expect(config.teslaOAuthRedirectUri).toBeNull();
   });
 });

@@ -338,8 +338,9 @@ try {
     }
 
     document.getElementById(provider + "-status").textContent = connection.connected ? "Connected" : "Not connected";
-    document.getElementById(provider + "-summary").textContent =
-      connection.summary || connection.warning || "Not connected";
+    document.getElementById(provider + "-summary").textContent = connection.connected
+      ? connection.summary || "Connected"
+      : connection.setupMessages?.join(". ") || connection.warning || "Not connected";
   }
 
   function startProviderAuth(provider) {

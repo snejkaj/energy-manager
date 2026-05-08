@@ -5,7 +5,6 @@ export interface AppConfig {
   databaseUrl: string | null;
   tibberAccessToken: string | null;
   tibberHomeId: string | null;
-  teslaAccessToken: string | null;
   teslaVehicleId: string | null;
   teslaRegion: "eu" | "us" | "na";
   tibberOAuthClientId: string | null;
@@ -45,15 +44,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     databaseUrl: emptyToNull(env.DATABASE_URL),
     tibberAccessToken: emptyToNull(trimEnv(env.TIBBER_ACCESS_TOKEN)),
     tibberHomeId: emptyToNull(env.TIBBER_HOME_ID),
-    teslaAccessToken: emptyToNull(env.TESLA_ACCESS_TOKEN),
-    teslaVehicleId: emptyToNull(env.TESLA_VEHICLE_ID),
+    teslaVehicleId: emptyToNull(trimEnv(env.TESLA_VEHICLE_ID)),
     teslaRegion: parseTeslaRegion(env.TESLA_REGION, setupNotes),
     tibberOAuthClientId: emptyToNull(env.TIBBER_OAUTH_CLIENT_ID),
     tibberOAuthClientSecret: emptyToNull(env.TIBBER_OAUTH_CLIENT_SECRET),
     tibberOAuthRedirectUri: emptyToNull(env.TIBBER_OAUTH_REDIRECT_URI),
-    teslaOAuthClientId: emptyToNull(env.TESLA_CLIENT_ID) ?? emptyToNull(env.TESLA_OAUTH_CLIENT_ID),
-    teslaOAuthClientSecret: emptyToNull(env.TESLA_CLIENT_SECRET) ?? emptyToNull(env.TESLA_OAUTH_CLIENT_SECRET),
-    teslaOAuthRedirectUri: emptyToNull(env.TESLA_REDIRECT_URI) ?? emptyToNull(env.TESLA_OAUTH_REDIRECT_URI),
+    teslaOAuthClientId: emptyToNull(trimEnv(env.TESLA_CLIENT_ID)),
+    teslaOAuthClientSecret: emptyToNull(trimEnv(env.TESLA_CLIENT_SECRET)),
+    teslaOAuthRedirectUri: emptyToNull(trimEnv(env.TESLA_REDIRECT_URI)),
     tokenEncryptionKey: emptyToNull(env.TOKEN_ENCRYPTION_KEY),
     electricityPriceProvider: emptyToNull(env.ELECTRICITY_PRICE_PROVIDER) ?? defaultElectricityPriceProvider(env),
     homeTelemetryProvider: emptyToNull(env.HOME_TELEMETRY_PROVIDER) ?? defaultHomeTelemetryProvider(env),
@@ -109,8 +107,8 @@ function defaultHomeTelemetryProvider(env: NodeJS.ProcessEnv): string {
   return emptyToNull(env.TIBBER_ACCESS_TOKEN) === null ? "mock-home-telemetry" : "tibber-live-measurement";
 }
 
-function defaultVehicleStateProvider(env: NodeJS.ProcessEnv): string {
-  return emptyToNull(env.TESLA_ACCESS_TOKEN) === null ? "mock-vehicle-state" : "tesla";
+function defaultVehicleStateProvider(_env: NodeJS.ProcessEnv): string {
+  return "mock-vehicle-state";
 }
 
 function defaultWeatherForecastProvider(env: NodeJS.ProcessEnv): string {

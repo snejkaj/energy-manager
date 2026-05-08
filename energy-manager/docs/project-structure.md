@@ -187,7 +187,9 @@ Owns travel signals that can influence future charging targets.
 DATABASE_URL=postgres://user:password@localhost:5432/energy_manager
 TIBBER_ACCESS_TOKEN=
 TIBBER_HOME_ID=
-TESLA_ACCESS_TOKEN=
+TESLA_CLIENT_ID=
+TESLA_CLIENT_SECRET=
+TESLA_REDIRECT_URI=
 TESLA_VEHICLE_ID=
 CHARGER_PROVIDER=planning-only
 VEHICLE_STATE_PROVIDER=tesla

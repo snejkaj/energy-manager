@@ -51,6 +51,20 @@ describe("ProviderAuthService", () => {
     expect(result.authorizationUrl).not.toContain("secret");
   });
 
+  it("reports exact missing Tesla OAuth fields", () => {
+    const service = new ProviderAuthService(loadConfig({
+      TESLA_CLIENT_SECRET: "secret",
+    }));
+
+    const result = service.startAuth("tesla");
+    const status = service.getConnectionStatus("tesla");
+
+    expect(result.authorizationUrl).toBeNull();
+    expect(result.message).toBe("Missing Tesla Client ID. Missing Tesla Redirect URI");
+    expect(status.oauthConfigured).toBe(false);
+    expect(status.setupMessages).toEqual(["Missing Tesla Client ID", "Missing Tesla Redirect URI"]);
+  });
+
   it("persists Tesla OAuth tokens server-side across restart", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
       access_token: "stored-access-token",

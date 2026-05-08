@@ -12,6 +12,8 @@ export type AuthProviderId = "tibber" | "tesla";
 export interface ProviderConnectionStatus {
   provider: AuthProviderId;
   connected: boolean;
+  oauthConfigured: boolean;
+  setupMessages: string[];
   demoStorage: boolean;
   summary: string | null;
   warning: string | null;
@@ -71,13 +73,21 @@ export class ProviderAuthService {
 
   startAuth(provider: AuthProviderId): AuthStartResult {
     const oauthConfig = getOAuthConfig(this.config, provider);
-    if (oauthConfig.clientId === null || oauthConfig.redirectUri === null) {
+    const missingConfig = getMissingOAuthConfig(this.config, provider);
+    if (missingConfig.length > 0) {
       return {
         provider,
         authorizationUrl: null,
         setupRequired: true,
-        message: `${labelProvider(provider)} OAuth is not configured yet.`,
+        message: missingConfig.join(". "),
       };
+    }
+    if (
+      oauthConfig.clientId === null
+      || oauthConfig.clientSecret === null
+      || oauthConfig.redirectUri === null
+    ) {
+      throw new Error(`${labelProvider(provider)} OAuth configuration validation failed.`);
     }
 
     const state = randomUUID();
@@ -172,17 +182,22 @@ export class ProviderAuthService {
     const token = this.tokens.get(provider);
     const envToken = getEnvironmentToken(this.config, provider);
     const connected = token !== undefined || envToken !== null;
+    const setupMessages = getMissingOAuthConfig(this.config, provider);
 
     return {
       provider,
       connected,
+      oauthConfigured: setupMessages.length === 0,
+      setupMessages,
       demoStorage: token !== undefined && this.config.databaseUrl === null,
       summary: connected ? `${labelProvider(provider)} connected in read-only mode.` : null,
       warning: connected
         ? null
         : provider === "tibber"
           ? "Tibber token not configured"
-          : "Tesla token not configured - using demo vehicle data",
+          : setupMessages.length > 0
+            ? setupMessages.join(". ")
+            : "Tesla is not connected. Demo vehicle data is used for planning.",
       connectedAt: token?.connectedAt ?? null,
     };
   }
@@ -335,7 +350,23 @@ function createTokenExchangeError(provider: AuthProviderId, status: number, resp
 }
 
 function getEnvironmentToken(config: AppConfig, provider: AuthProviderId): string | null {
-  return provider === "tibber" ? config.tibberAccessToken : config.teslaAccessToken;
+  return provider === "tibber" ? config.tibberAccessToken : null;
+}
+
+function getMissingOAuthConfig(config: AppConfig, provider: AuthProviderId): string[] {
+  if (provider === "tibber") {
+    return [
+      config.tibberOAuthClientId === null ? "Missing Tibber Client ID" : null,
+      config.tibberOAuthClientSecret === null ? "Missing Tibber Client Secret" : null,
+      config.tibberOAuthRedirectUri === null ? "Missing Tibber Redirect URI" : null,
+    ].filter((message): message is string => message !== null);
+  }
+
+  return [
+    config.teslaOAuthClientId === null ? "Missing Tesla Client ID" : null,
+    config.teslaOAuthClientSecret === null ? "Missing Tesla Client Secret" : null,
+    config.teslaOAuthRedirectUri === null ? "Missing Tesla Redirect URI" : null,
+  ].filter((message): message is string => message !== null);
 }
 
 function labelProvider(provider: AuthProviderId): string {

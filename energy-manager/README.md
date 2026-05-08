@@ -130,7 +130,6 @@ Optional:
 - Set `DATABASE_URL` to a PostgreSQL connection string to save data.
 - Add `TIBBER_ACCESS_TOKEN` to fetch real electricity prices.
 - Most users do not need `tibber_home_id`. If Tibber returns one home, the app selects it automatically.
-- Add `TESLA_ACCESS_TOKEN` to show live car battery level and plugged-in state.
 - Connect Tesla from the web UI using OAuth. Tibber OAuth is not used yet.
 - Keep `CHARGER_PROVIDER=planning-only` until real charger control is added.
 - Use `mock-charger` only for local development and tests.
@@ -154,7 +153,6 @@ Initial Home Assistant options include:
 - optional solar panel tilt and azimuth
 - Tibber access token
 - optional Tibber home selection, only for accounts with multiple homes
-- Tesla access token
 - Tesla vehicle ID
 - Tesla region, defaulting to `eu`
 - Tibber OAuth client ID, secret, and redirect URI
@@ -186,7 +184,6 @@ solar_panel_tilt_degrees: ""
 solar_panel_azimuth_degrees: ""
 tibber_access_token: ""
 tibber_home_id: ""
-tesla_access_token: ""
 tesla_vehicle_id: ""
 tesla_region: "eu"
 tesla_client_id: ""
@@ -207,7 +204,7 @@ charging_efficiency: "0.9"
 
 When `TIBBER_ACCESS_TOKEN` is set, the app uses Tibber as the default electricity price provider and fetches today/tomorrow prices with a personal access token. Without the token, electricity and telemetry default to mock providers for local development. Charger control defaults to planning-only mode.
 
-Tesla can be connected from the UI with the `Connect Tesla` button after `tesla_client_id`, `tesla_client_secret`, and `tesla_redirect_uri` are configured. Tokens are stored server-side only. `tesla_access_token` is still supported for local read-only testing. The app uses Tesla Fleet API in read-only mode to fetch battery state, plugged-in state, charging state, range, vehicle name, and online/asleep/offline state. It does not wake the vehicle and does not send vehicle commands. `tesla_region` defaults to `eu`; set it to `us` only for North America.
+Tesla can be connected from the UI with the `Connect Tesla` button after `tesla_client_id`, `tesla_client_secret`, and `tesla_redirect_uri` are configured. Tokens are stored server-side only after OAuth login. The app uses Tesla Fleet API in read-only mode to fetch battery state, plugged-in state, charging state, range, vehicle name, and online/asleep/offline state. It does not wake the vehicle and does not send vehicle commands. `tesla_region` defaults to `eu`; set it to `us` only for North America.
 
 Most users do not need `tibber_home_id`.
 
