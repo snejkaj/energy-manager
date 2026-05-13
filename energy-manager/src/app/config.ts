@@ -12,6 +12,7 @@ export interface AppConfig {
   tibberOAuthRedirectUri: string | null;
   teslaOAuthClientId: string | null;
   teslaOAuthClientSecret: string | null;
+  externalBaseUrl: string | null;
   homeAssistantNabuCasaUrl: string | null;
   homeAssistantExternalUrl: string | null;
   teslaAllowInsecureCallback: boolean;
@@ -53,6 +54,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     tibberOAuthRedirectUri: emptyToNull(env.TIBBER_OAUTH_REDIRECT_URI),
     teslaOAuthClientId: emptyToNull(trimEnv(env.TESLA_CLIENT_ID)),
     teslaOAuthClientSecret: emptyToNull(trimEnv(env.TESLA_CLIENT_SECRET)),
+    externalBaseUrl: emptyToNull(trimEnv(env.EXTERNAL_BASE_URL)),
     homeAssistantNabuCasaUrl: emptyToNull(trimEnv(env.HOME_ASSISTANT_NABU_CASA_URL ?? env.NABU_CASA_REMOTE_URL)),
     homeAssistantExternalUrl: emptyToNull(trimEnv(env.HOME_ASSISTANT_EXTERNAL_URL ?? env.HA_EXTERNAL_URL)),
     teslaAllowInsecureCallback: parseBoolean(env.TESLA_ALLOW_INSECURE_CALLBACK, false, "Tesla insecure callback override", setupNotes),

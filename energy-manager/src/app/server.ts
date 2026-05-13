@@ -1484,7 +1484,7 @@ interface TeslaCallbackInfo {
 }
 
 interface TeslaCallbackCandidate {
-  source: "nabu_casa_remote_url" | "home_assistant_external_url" | "ingress_https_url" | "local_fallback";
+  source: "external_base_url" | "nabu_casa_remote_url" | "home_assistant_external_url" | "ingress_https_url" | "local_fallback";
   baseUrl: string;
   callbackUrl: string;
   reason: string;
@@ -1549,6 +1549,7 @@ function createTeslaCallbackCandidates(request: IncomingMessage, config: AppConf
     candidates.push(createTeslaCallbackCandidate(source, normalized, reason));
   };
 
+  addCandidate("external_base_url", applyIngressPath(config?.externalBaseUrl ?? null, request), "Manual external base URL configured.");
   addCandidate("nabu_casa_remote_url", config?.homeAssistantNabuCasaUrl ?? null, "Nabu Casa remote URL configured.");
 
   const externalUrl = config?.homeAssistantExternalUrl ?? null;
@@ -1621,6 +1622,46 @@ function extractIngressBaseFromUrl(value: string | null): string | null {
   } catch {
     return null;
   }
+}
+
+function applyIngressPath(externalBaseUrl: string | null, request: IncomingMessage): string | null {
+  const normalizedExternalBaseUrl = normalizeBaseUrl(externalBaseUrl);
+  if (normalizedExternalBaseUrl === null) {
+    return null;
+  }
+
+  if (normalizedExternalBaseUrl.includes("/api/hassio_ingress/")) {
+    return normalizedExternalBaseUrl;
+  }
+
+  const ingressPath = detectIngressPath(request);
+  return ingressPath === null ? normalizedExternalBaseUrl : `${normalizedExternalBaseUrl}${ingressPath}`;
+}
+
+function detectIngressPath(request: IncomingMessage): string | null {
+  const refererBase = extractIngressBaseFromUrl(firstHeader(request, "referer"));
+  if (refererBase !== null) {
+    try {
+      const refererUrl = new URL(refererBase);
+      const ingressMatch = /^(\/api\/hassio_ingress\/[^/]+)/.exec(refererUrl.pathname);
+      if (ingressMatch?.[1] !== undefined) {
+        return ingressMatch[1];
+      }
+    } catch {
+      return null;
+    }
+  }
+
+  const forwardedPrefix = firstHeader(request, "x-ingress-path")
+    ?? firstHeader(request, "x-forwarded-prefix")
+    ?? firstHeader(request, "x-external-prefix");
+  if (forwardedPrefix !== null && forwardedPrefix.includes("/api/hassio_ingress/")) {
+    const match = /^(.*?\/api\/hassio_ingress\/[^/]+)/.exec(normalizeUrlPath(forwardedPrefix));
+    return match?.[1] ?? null;
+  }
+
+  const requestPathMatch = /^(\/api\/hassio_ingress\/[^/]+)/.exec(new URL(request.url ?? "/", "http://localhost").pathname);
+  return requestPathMatch?.[1] ?? null;
 }
 
 function normalizeBaseUrl(value: string | null | undefined): string | null {
@@ -1757,6 +1798,7 @@ function writeTeslaStartDebugHtml(
       <dt>OAuth configured</dt><dd>${diagnostics.configured ? "yes" : "no"}</dd>
       <dt>Client ID configured</dt><dd>${diagnostics.clientIdConfigured ? "yes" : "no"}</dd>
       <dt>Client secret configured</dt><dd>${diagnostics.clientSecretConfigured ? "yes" : "no"}</dd>
+      <dt>external_base_url configured</dt><dd>${callbackInfo.candidates.some((candidate) => candidate.source === "external_base_url") ? "yes" : "no"}</dd>
       <dt>Selected callback URL</dt><dd>${escapeHtml(callbackInfo.callbackUrl ?? "No HTTPS callback URL selected")}</dd>
       <dt>Why selected</dt><dd>${escapeHtml(callbackInfo.selectedReason)}</dd>
       <dt>HTTPS enabled</dt><dd>${callbackInfo.httpsEnabled ? "yes" : "no"}</dd>

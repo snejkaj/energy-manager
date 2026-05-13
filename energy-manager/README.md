@@ -189,6 +189,7 @@ tesla_vehicle_id: ""
 tesla_region: "eu"
 tesla_client_id: ""
 tesla_client_secret: ""
+external_base_url: ""
 home_assistant_nabu_casa_url: ""
 home_assistant_external_url: ""
 tibber_oauth_client_id: ""
@@ -441,12 +442,25 @@ https://xxxxx.ui.nabu.casa/api/hassio_ingress/abcdef/api/auth/tesla/callback
 
 Tesla OAuth uses an HTTPS callback by default. The add-on chooses callback URLs in this order:
 
-1. Nabu Casa remote URL
-2. Home Assistant external URL
-3. HTTPS ingress URL
-4. Local fallback only for development
+1. Manual `external_base_url`
+2. Nabu Casa remote URL
+3. Home Assistant external URL
+4. HTTPS ingress URL
+5. Local fallback only for development
 
 If the debug page shows `http://`, `localhost`, a local IP address, or `.local`, fix the external Home Assistant URL before connecting Tesla. Local HTTP callbacks are rejected unless `tesla_allow_insecure_callback` is explicitly enabled for development.
+
+If auto-detection only finds your local Home Assistant URL, set:
+
+```yaml
+external_base_url: "https://pq2du9jfg8bxdwdpr3nrvsad6e4vc5nr.ui.nabu.casa"
+```
+
+If the add-on is opened through ingress, Energy Manager appends the current ingress path automatically and generates:
+
+```text
+https://pq2du9jfg8bxdwdpr3nrvsad6e4vc5nr.ui.nabu.casa/api/hassio_ingress/<ingress-id>/api/auth/tesla/callback
+```
 
 ## Requirements
 
