@@ -100,6 +100,8 @@ try {
     bindButton("disconnect-tibber", "Disconnect Tibber", () => disconnectProvider("tibber"), { required: false });
     bindButton("disconnect-tesla", "Disconnect Tesla", () => disconnectProvider("tesla"), { required: false });
     bindButton("refresh-tesla", "Refresh Tesla", () => refreshTesla(true), { required: false });
+    bindButton("diagnose-setup", "Diagnose setup", () => diagnoseSetup(), { required: false });
+    bindButton("copy-support-report", "Copy support report", () => copySupportReport(), { required: false });
 
     const strategyDialog = document.getElementById("strategy-dialog");
     bindButton(
@@ -392,6 +394,63 @@ try {
       .then(() => (provider === "tesla" ? refreshTesla(false) : null))
       .then(() => showToast(providerName(provider) + " disconnected"))
       .catch((error) => showFetchError(providerName(provider) + " disconnect failed", error));
+  }
+
+  function diagnoseSetup() {
+    showToast("Diagnosing setup...");
+    setText("support-summary", "Checking setup...");
+    return fetchJson("/api/support/diagnostics")
+      .then((response) => response.json())
+      .then((diagnostics) =>
+        fetchJson("/api/support/explain", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ diagnostics }),
+        }),
+      )
+      .then((response) => response.json())
+      .then((data) => {
+        renderSupportAdvice(data);
+        showToast("Setup diagnosis ready");
+      })
+      .catch((error) => showFetchError("Could not diagnose setup", error));
+  }
+
+  function renderSupportAdvice(data) {
+    const advice = data.advice || {};
+    setText("support-summary", "Support check completed");
+    setText("support-detected-issue", advice.detectedIssue || "No issue detected");
+    setText("support-likely-cause", advice.likelyCause || "No likely cause available");
+    setText("support-next-action", advice.nextAction || "No next action available");
+    const report = document.getElementById("support-report");
+    if (report) {
+      report.value = data.report || "No support report generated.";
+    }
+  }
+
+  function copySupportReport() {
+    const report = document.getElementById("support-report");
+    if (!report) {
+      showToast("No support report found");
+      return Promise.resolve();
+    }
+
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+      return navigator.clipboard
+        .writeText(report.value)
+        .then(() => showToast("Support report copied"))
+        .catch((error) => {
+          report.select();
+          document.execCommand("copy");
+          showToast("Support report copied");
+          uiWarn("Clipboard API failed: " + (error?.message || String(error)));
+        });
+    }
+
+    report.select();
+    document.execCommand("copy");
+    showToast("Support report copied");
+    return Promise.resolve();
   }
 
   function apiUrl(path) {

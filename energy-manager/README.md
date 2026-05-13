@@ -29,6 +29,7 @@ Implemented so far:
 - Tibber provider for price data and optional home power readings
 - read-only Tesla provider for SOC, plugged-in state, charging state, and estimated range
 - provider connection UI for Tibber and Tesla OAuth setup
+- safe support diagnostics with rule-based setup explanations and copyable reports
 - Open-Meteo weather provider
 - optional solar prediction from weather and historical production
 - travel event system for calendar tags, manual "Needs car", and AI-inferred trips
@@ -156,7 +157,7 @@ Initial Home Assistant options include:
 - Tesla vehicle ID
 - Tesla region, defaulting to `eu`
 - Tibber OAuth client ID, secret, and redirect URI
-- Tesla OAuth client ID, secret, and redirect URI
+- Tesla OAuth client ID and secret
 - optional token encryption key
 - PostgreSQL database URL
 - departure time
@@ -274,6 +275,8 @@ curl http://localhost:3000/debug/html
 curl http://localhost:3000/debug/config
 curl http://localhost:3000/api/status
 curl http://localhost:3000/api/plan
+curl http://localhost:3000/api/support/diagnostics
+curl -X POST http://localhost:3000/api/support/explain
 curl -X POST http://localhost:3000/api/emergency-charge
 ```
 
@@ -286,6 +289,8 @@ Expected result:
 - `/debug/html` shows the exact generated HTML, including the inline boot script and `/app.js` script tag
 - `/debug/config` shows whether Tibber token and home selection are configured, without exposing secrets
 - `/api/status` shows `demoMode: true` and `Planning only`
+- `/api/support/diagnostics` returns safe setup information without secrets
+- `/api/support/explain` returns a rule-based support explanation and copyable report
 - the web UI shows a charging plan
 - the web UI footer changes from `UI script not loaded` to `UI script loaded`
 - the UI diagnostics panel shows script status, buttons found, handlers attached, last event, and last error
@@ -339,6 +344,21 @@ To verify it works, the UI should show:
 - `Charge to 100%`
 - a footer message saying `UI script loaded`
 - visible feedback when clicking the main buttons
+
+## Support Diagnostics
+
+The UI has a **Support** section.
+
+Click **Diagnose setup** to check common setup problems. The first version is rule-based and does not call an external AI service.
+
+It can explain issues such as:
+
+- missing Tibber token
+- Tesla OAuth configured but not connected yet
+- Tesla callback URL mismatch
+- UI script loading problems
+
+Click **Copy support report** to copy a safe report for troubleshooting. The report masks tokens, client secrets, refresh tokens, authorization codes, and personal URL parts where possible.
 
 ## Provider Login
 

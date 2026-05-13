@@ -22,6 +22,7 @@ import { TibberGraphQLClient } from "../providers/tibber/TibberClient.js";
 import { TibberHomeTelemetryProvider, TibberPriceProvider } from "../providers/tibber/TibberProvider.js";
 import type { TibberHomeSelectionInfo } from "../providers/tibber/TibberTypes.js";
 import type { VehicleState } from "../providers/VehicleStateProvider.js";
+import { RuleBasedSupportExplainer, type SupportAdvice, type SupportDiagnostics } from "../support/SupportExplainer.js";
 import {
   ProviderAuthService,
   type AuthProviderId,
@@ -81,7 +82,11 @@ export function startServer(): void {
   assertStartupIsReady(onboarding);
 
   const authService = new ProviderAuthService(config);
+  const supportExplainer = new RuleBasedSupportExplainer();
   let emergencyOverrideActive = false;
+  let lastApiError: SupportEvent | null = null;
+  let lastOAuthError: SupportEvent | null = null;
+  const lastBuildConfigWarning = createLastBuildConfigWarning(config, onboarding);
   let lastTeslaCallbackResult: TeslaCallbackResult = {
     callbackHit: false,
     tokenExchangeSuccess: false,
@@ -116,6 +121,29 @@ export function startServer(): void {
       return;
     }
 
+    if (request.method === "GET" && path === "/api/support/diagnostics") {
+      writeJson(response, 200, createSupportDiagnostics(request, config, onboarding, authService, {
+        lastApiError,
+        lastOAuthError,
+        lastBuildConfigWarning,
+      }));
+      return;
+    }
+
+    if (request.method === "POST" && path === "/api/support/explain") {
+      const diagnostics = createSupportDiagnostics(request, config, onboarding, authService, {
+        lastApiError,
+        lastOAuthError,
+        lastBuildConfigWarning,
+      });
+      const advice = supportExplainer.explain(diagnostics);
+      writeJson(response, 200, {
+        advice,
+        report: createSupportReport(diagnostics, advice),
+      });
+      return;
+    }
+
     if (request.method === "GET" && path === "/api/connections") {
       void getTeslaStateResponse(config, authService, false)
         .then((teslaStatus) =>
@@ -126,14 +154,15 @@ export function startServer(): void {
             teslaStatus,
           }),
         )
-        .catch((error: unknown) =>
+        .catch((error: unknown) => {
+          lastApiError = createSupportEvent(errorMessage(error));
           writeJson(response, 200, {
             demoMode: onboarding.demoMode,
             warning: onboarding.demoMode ? "Demo mode uses temporary in-memory tokens only." : null,
             connections: authService.getConnectionStatuses(),
             teslaStatus: createTeslaErrorResponse(config, error, authService),
-          }),
-        );
+          });
+        });
       return;
     }
 
@@ -283,6 +312,7 @@ export function startServer(): void {
         const message = description.toLowerCase().includes("redirect")
           ? "Tesla login failed. Check that the generated add-on callback URL exactly matches the redirect URI in Tesla Developer Console."
           : description;
+        lastOAuthError = createSupportEvent(message);
         writeAuthResultHtml(response, 400, "Tesla connection failed", [
           `Error code: ${oauthError}`,
           `Description: ${message}`,
@@ -301,6 +331,7 @@ export function startServer(): void {
       const code = url.searchParams.get("code");
       const state = url.searchParams.get("state");
       if (code === null || state === null) {
+        lastOAuthError = createSupportEvent("Missing OAuth code or state.");
         writeAuthResultHtml(response, 400, "Tesla connection failed", [
           "Missing OAuth code or state.",
           `Redirect URI used: ${createTeslaCallbackInfo(request).callbackUrl}`,
@@ -342,6 +373,7 @@ export function startServer(): void {
           ], createBackHref(path));
         })
         .catch((error: unknown) => {
+          lastOAuthError = createSupportEvent(errorMessage(error));
           if (provider === "tesla") {
             lastTeslaCallbackResult = {
               callbackHit: true,
@@ -371,11 +403,12 @@ export function startServer(): void {
       logger.info("HTTP", "GET /api/plan requested");
       void createPlanResponse(config, onboarding, createProviderRegistry(config, authService), emergencyOverrideActive)
         .then((planResponse) => writeJson(response, 200, planResponse))
-        .catch((error: unknown) =>
+        .catch((error: unknown) => {
+          lastApiError = createSupportEvent(errorMessage(error));
           writeJson(response, 500, {
-            error: error instanceof Error ? error.message : "Unknown error",
-          }),
-        );
+            error: errorMessage(error),
+          });
+        });
       return;
     }
 
@@ -388,11 +421,12 @@ export function startServer(): void {
       emergencyOverrideActive = true;
       void createPlanResponse(config, onboarding, createProviderRegistry(config, authService), emergencyOverrideActive)
         .then((planResponse) => writeJson(response, 200, planResponse))
-        .catch((error: unknown) =>
+        .catch((error: unknown) => {
+          lastApiError = createSupportEvent(errorMessage(error));
           writeJson(response, 500, {
-            error: error instanceof Error ? error.message : "Unknown error",
-          }),
-        );
+            error: errorMessage(error),
+          });
+        });
       return;
     }
 
@@ -1176,6 +1210,151 @@ function createConfigDiagnostics(config: AppConfig) {
   };
 }
 
+interface SupportEvent {
+  message: string;
+  recordedAt: string;
+}
+
+interface SupportRuntimeState {
+  lastApiError: SupportEvent | null;
+  lastOAuthError: SupportEvent | null;
+  lastBuildConfigWarning: string | null;
+}
+
+function createSupportDiagnostics(
+  request: IncomingMessage,
+  config: AppConfig,
+  onboarding: StartupOnboarding,
+  authService: ProviderAuthService,
+  runtime: SupportRuntimeState,
+): SupportDiagnostics {
+  const callbackInfo = createTeslaCallbackInfo(request);
+  const tibberStatus = authService.getConnectionStatus("tibber");
+  const teslaStatus = authService.getConnectionStatus("tesla");
+  return {
+    appVersion,
+    addonVersion: appVersion,
+    providerStatus: {
+      electricityPriceProvider: config.electricityPriceProvider,
+      homeTelemetryProvider: config.homeTelemetryProvider,
+      vehicleStateProvider: config.vehicleStateProvider,
+      weatherForecastProvider: config.weatherForecastProvider,
+      chargerProvider: config.chargerProvider ?? "planning-only",
+    },
+    tibberConnected: tibberStatus.connected,
+    teslaOAuthConfigured: teslaStatus.oauthConfigured,
+    teslaConnected: teslaStatus.connected,
+    lastApiError: formatSupportEvent(runtime.lastApiError),
+    lastOAuthError: formatSupportEvent(runtime.lastOAuthError),
+    lastBuildConfigWarning: runtime.lastBuildConfigWarning,
+    currentFallbackMode: {
+      demoMode: onboarding.demoMode,
+      planningOnlyMode: onboarding.planningOnlyMode,
+      description: describeFallbackMode(onboarding),
+    },
+    homeAssistant: {
+      detectedIngressUrl: maskUrl(callbackInfo.ingressBaseUrl),
+      generatedTeslaCallbackUrl: maskUrl(callbackInfo.callbackUrl),
+      currentRequestUrl: maskUrl(createRequestUrl(request)),
+    },
+    setupNotes: [...onboarding.setupWarnings, ...onboarding.setupMessages].map(maskSensitiveText),
+  };
+}
+
+function createSupportReport(diagnostics: SupportDiagnostics, advice: SupportAdvice): string {
+  const payload = {
+    generatedAt: new Date().toISOString(),
+    diagnostics,
+    advice,
+  };
+  return maskSensitiveText(JSON.stringify(payload, null, 2));
+}
+
+function createLastBuildConfigWarning(config: AppConfig, onboarding: StartupOnboarding): string | null {
+  return [
+    ...config.setupNotes,
+    ...onboarding.setupWarnings,
+    ...onboarding.setupMessages,
+  ].at(-1) ?? null;
+}
+
+function createSupportEvent(message: string): SupportEvent {
+  return {
+    message: maskSensitiveText(message),
+    recordedAt: new Date().toISOString(),
+  };
+}
+
+function formatSupportEvent(event: SupportEvent | null): string | null {
+  return event === null ? null : `${event.message} at ${event.recordedAt}`;
+}
+
+function describeFallbackMode(onboarding: StartupOnboarding): string {
+  if (onboarding.demoMode && onboarding.planningOnlyMode) {
+    return "Demo mode with planning-only charger control.";
+  }
+
+  if (onboarding.demoMode) {
+    return "Demo mode - no data is saved.";
+  }
+
+  if (onboarding.planningOnlyMode) {
+    return "Planning-only charger control.";
+  }
+
+  return "Configured mode.";
+}
+
+function createRequestUrl(request: IncomingMessage): string {
+  const host = firstHeader(request, "x-forwarded-host") ?? firstHeader(request, "host") ?? "localhost:3000";
+  const proto = firstHeader(request, "x-forwarded-proto") ?? (host.includes("localhost") ? "http" : "https");
+  return `${proto}://${host}${request.url ?? "/"}`;
+}
+
+function maskUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    url.username = "";
+    url.password = "";
+    url.search = "";
+    url.hash = "";
+    const path = url.pathname.replace(/\/api\/hassio_ingress\/[^/]+/, "/api/hassio_ingress/[masked]");
+    return `${url.protocol}//${maskHost(url.hostname)}${url.port === "" ? "" : `:${url.port}`}${path}`;
+  } catch {
+    return maskSensitiveText(value);
+  }
+}
+
+function maskHost(host: string): string {
+  if (host === "localhost" || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(host)) {
+    return host;
+  }
+
+  const parts = host.split(".");
+  if (parts.length <= 2) {
+    return "[masked-host]";
+  }
+
+  return `[masked].${parts.slice(-2).join(".")}`;
+}
+
+function maskSensitiveText(value: string): string {
+  return value
+    .replace(/(access[_-]?token["']?\s*[:=]\s*["']?)[^"',\s]+/gi, "$1[masked]")
+    .replace(/(accessToken["']?\s*[:=]\s*["']?)[^"',\s]+/g, "$1[masked]")
+    .replace(/(refresh[_-]?token["']?\s*[:=]\s*["']?)[^"',\s]+/gi, "$1[masked]")
+    .replace(/(refreshToken["']?\s*[:=]\s*["']?)[^"',\s]+/g, "$1[masked]")
+    .replace(/(client[_-]?secret["']?\s*[:=]\s*["']?)[^"',\s]+/gi, "$1[masked]")
+    .replace(/(clientSecret["']?\s*[:=]\s*["']?)[^"',\s]+/g, "$1[masked]")
+    .replace(/(authorization[_-]?code["']?\s*[:=]\s*["']?)[^"',\s]+/gi, "$1[masked]")
+    .replace(/(code["']?\s*[:=]\s*["']?)[A-Za-z0-9._~/-]{12,}/gi, "$1[masked]")
+    .replace(/(Bearer\s+)[A-Za-z0-9._~/-]+/gi, "$1[masked]");
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Unknown error";
+}
+
 function resolveStaticDirectory(): string {
   return staticDirectories.find((staticDirectory) => existsSync(staticDirectory)) ?? staticDirectories[0];
 }
@@ -1793,6 +1972,35 @@ function renderHtml(): string {
       font-weight: 650;
     }
 
+    .support-result {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 4px;
+      margin: 12px 0;
+    }
+
+    .support-result dt {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .support-result dd {
+      margin: 0 0 8px;
+      overflow-wrap: anywhere;
+      font-weight: 650;
+    }
+
+    textarea {
+      width: 100%;
+      max-width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      color: var(--text);
+      background: var(--surface);
+      font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
     dialog {
       width: min(calc(100% - 32px), 420px);
       border: 1px solid var(--line);
@@ -1968,6 +2176,25 @@ function renderHtml(): string {
           <li>Demo mode - no data is saved.</li>
           <li>Planning only mode is active.</li>
         </ol>
+      </div>
+
+      <div class="item connect" id="support-section">
+        <span class="label">Support</span>
+        <p class="subtle" id="support-summary">Run a safe setup check without sharing secrets.</p>
+        <div class="connect-row">
+          <button type="button" id="diagnose-setup">Diagnose setup</button>
+          <button type="button" id="copy-support-report">Copy support report</button>
+        </div>
+        <dl class="support-result">
+          <dt>Detected issue</dt>
+          <dd id="support-detected-issue">Not checked yet</dd>
+          <dt>Likely cause</dt>
+          <dd id="support-likely-cause">Not checked yet</dd>
+          <dt>Next action</dt>
+          <dd id="support-next-action">Not checked yet</dd>
+        </dl>
+        <label class="label" for="support-report">Support report</label>
+        <textarea id="support-report" rows="8" readonly>No support report generated yet.</textarea>
       </div>
 
       <div class="item connect">

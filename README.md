@@ -120,6 +120,20 @@ npm run build
 docker build -t energy-manager-addon .
 ```
 
+## Support Diagnostics
+
+The UI includes a **Support** section.
+
+Click **Diagnose setup** to get a safe setup report with:
+
+- app and add-on version
+- provider connection status
+- current fallback mode
+- Home Assistant ingress callback information with personal parts masked
+- the last known setup, API, or OAuth issue
+
+Click **Copy support report** when asking for help. The report is designed to avoid tokens, client secrets, refresh tokens, authorization codes, and personal URLs.
+
 ## Versioning
 
 Every code or configuration change must bump the version. The add-on uses semantic versioning and the rules are in [VERSIONING.md](VERSIONING.md).
