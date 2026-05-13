@@ -47,6 +47,7 @@ const demoReasons = ["Cheap electricity", "Typical weekday trip", "Solar expecte
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const staticDirectories = [join(currentDir, "../../public"), join(process.cwd(), "public")] as const;
+const appVersion = readAppVersion();
 
 const dailyOutcomes: DecisionOutcomeRecord[] = [
   {
@@ -81,6 +82,13 @@ export function startServer(): void {
 
   const authService = new ProviderAuthService(config);
   let emergencyOverrideActive = false;
+  let lastTeslaCallbackResult: TeslaCallbackResult = {
+    callbackHit: false,
+    tokenExchangeSuccess: false,
+    vehicleFetchAttempted: false,
+    message: "No Tesla callback received yet.",
+    recordedAt: null,
+  };
 
   const server = createServer((request, response) => {
     startRequestLogging(request, response);
@@ -97,6 +105,14 @@ export function startServer(): void {
 
     if (request.method === "GET" && path === "/api/status") {
       writeJson(response, 200, createStatusResponse(config, onboarding, emergencyOverrideActive));
+      return;
+    }
+
+    if (request.method === "GET" && path === "/api/version") {
+      writeJson(response, 200, {
+        name: "Energy Manager",
+        version: appVersion,
+      });
       return;
     }
 
@@ -165,7 +181,8 @@ export function startServer(): void {
     }
 
     if (request.method === "GET" && path === "/debug/tesla/authorization-url") {
-      const authStart = authService.startAuth("tesla");
+      const callbackInfo = createTeslaCallbackInfo(request);
+      const authStart = authService.startAuth("tesla", callbackInfo.callbackUrl);
       logTeslaAuthStart(authStart);
       const validation = validateTeslaAuthorizationUrl(authStart.authorizationUrl);
       const variants = createTeslaAuthorizationUrlVariants(authStart.authorizationUrl);
@@ -174,6 +191,8 @@ export function startServer(): void {
         authorizationUrl: authStart.authorizationUrl,
         missing: validation.missing,
         redirectUri: authStart.redirectUri,
+        detectedIngressUrl: callbackInfo.ingressBaseUrl,
+        generatedCallbackUrl: callbackInfo.callbackUrl,
         scopes: authStart.scopes,
         variants: variants.map((variant) => ({
           id: variant.id,
@@ -183,6 +202,18 @@ export function startServer(): void {
           valid: variant.validation.valid,
           missing: variant.validation.missing,
         })),
+      });
+      return;
+    }
+
+    if (request.method === "GET" && path === "/debug/tesla/callback-info") {
+      const callbackInfo = createTeslaCallbackInfo(request);
+      writeJson(response, 200, {
+        detectedIngressUrl: callbackInfo.ingressBaseUrl,
+        generatedCallbackUrl: callbackInfo.callbackUrl,
+        oauthStatePending: authService.hasPendingState("tesla"),
+        lastCallbackResult: lastTeslaCallbackResult,
+        tokenExchangeSuccess: lastTeslaCallbackResult.tokenExchangeSuccess,
       });
       return;
     }
@@ -208,7 +239,9 @@ export function startServer(): void {
 
     if (request.method === "POST" && (path === "/api/auth/tibber/start" || path === "/api/auth/tesla/start")) {
       const provider = getProviderFromPath(path);
-      const authStart = authService.startAuth(provider);
+      const authStart = provider === "tesla"
+        ? authService.startAuth(provider, createTeslaCallbackInfo(request).callbackUrl)
+        : authService.startAuth(provider);
       if (provider === "tesla") {
         logTeslaAuthStart(authStart);
       }
@@ -217,34 +250,51 @@ export function startServer(): void {
     }
 
     if (request.method === "GET" && path === "/api/auth/tesla/start") {
-      const authStart = authService.startAuth("tesla");
+      const authStart = authService.startAuth("tesla", createTeslaCallbackInfo(request).callbackUrl);
       logTeslaAuthStart(authStart);
       writeJson(response, 200, authStart);
       return;
     }
 
     if (request.method === "GET" && path === "/auth/tesla/start-debug") {
-      const diagnostics = authService.getOAuthDiagnostics("tesla");
-      const authStart = authService.startAuth("tesla");
+      const callbackInfo = createTeslaCallbackInfo(request);
+      const diagnostics = authService.getOAuthDiagnostics("tesla", callbackInfo.callbackUrl);
+      const authStart = authService.startAuth("tesla", callbackInfo.callbackUrl);
       logTeslaAuthStart(authStart);
-      writeTeslaStartDebugHtml(response, diagnostics, authStart, createBackHref(path));
+      writeTeslaStartDebugHtml(response, diagnostics, authStart, callbackInfo, createBackHref(path));
       return;
     }
 
     if (request.method === "GET" && (path === "/api/auth/tibber/callback" || path === "/api/auth/tesla/callback")) {
       logger.info("Auth", `${labelProvider(getProviderFromPath(path))} callback hit=yes`);
+      if (path === "/api/auth/tesla/callback") {
+        lastTeslaCallbackResult = {
+          callbackHit: true,
+          tokenExchangeSuccess: false,
+          vehicleFetchAttempted: false,
+          message: "Tesla callback received.",
+          recordedAt: new Date().toISOString(),
+        };
+      }
       const url = new URL(request.url ?? "/", "http://localhost");
       const oauthError = url.searchParams.get("error");
       if (oauthError !== null) {
         const description = url.searchParams.get("error_description") ?? oauthError;
         const message = description.toLowerCase().includes("redirect")
-          ? "Tesla login failed. Check that TESLA_REDIRECT_URI exactly matches the redirect URI in Tesla Developer Console."
+          ? "Tesla login failed. Check that the generated add-on callback URL exactly matches the redirect URI in Tesla Developer Console."
           : description;
         writeAuthResultHtml(response, 400, "Tesla connection failed", [
           `Error code: ${oauthError}`,
           `Description: ${message}`,
-          `Redirect URI used: ${config.teslaOAuthRedirectUri ?? "not configured"}`,
+          `Redirect URI used: ${createTeslaCallbackInfo(request).callbackUrl}`,
         ], createBackHref(path));
+        lastTeslaCallbackResult = {
+          callbackHit: true,
+          tokenExchangeSuccess: false,
+          vehicleFetchAttempted: false,
+          message: `Tesla callback error: ${oauthError}`,
+          recordedAt: new Date().toISOString(),
+        };
         return;
       }
 
@@ -253,33 +303,59 @@ export function startServer(): void {
       if (code === null || state === null) {
         writeAuthResultHtml(response, 400, "Tesla connection failed", [
           "Missing OAuth code or state.",
-          `Redirect URI used: ${config.teslaOAuthRedirectUri ?? "not configured"}`,
+          `Redirect URI used: ${createTeslaCallbackInfo(request).callbackUrl}`,
         ], createBackHref(path));
+        lastTeslaCallbackResult = {
+          callbackHit: true,
+          tokenExchangeSuccess: false,
+          vehicleFetchAttempted: false,
+          message: "Missing OAuth code or state.",
+          recordedAt: new Date().toISOString(),
+        };
         return;
       }
 
       const provider = getProviderFromPath(path);
       let vehicleFetchAttempted = false;
+      let vehicleFetchError: string | null = null;
       void authService
         .handleCallback(provider, code, state)
         .then(async () => {
           if (provider === "tesla") {
             vehicleFetchAttempted = true;
             await getTeslaStateResponse(config, authService, true).catch((error: unknown) => {
-              logger.error("Tesla", `Tesla state fetch after OAuth failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+              vehicleFetchError = error instanceof Error ? error.message : "Unknown error";
+              logger.error("Tesla", `Tesla state fetch after OAuth failed: ${vehicleFetchError}`);
             });
+            lastTeslaCallbackResult = {
+              callbackHit: true,
+              tokenExchangeSuccess: true,
+              vehicleFetchAttempted,
+              message: vehicleFetchError === null ? "Tesla connected." : `Tesla connected; vehicle fetch failed: ${vehicleFetchError}`,
+              recordedAt: new Date().toISOString(),
+            };
           }
           writeAuthResultHtml(response, 200, `${labelProvider(provider)} connected`, [
             provider === "tesla" ? `Vehicle fetch attempted: ${vehicleFetchAttempted ? "yes" : "no"}` : "Connection completed.",
+            ...(vehicleFetchError === null ? [] : [`Tesla API error: ${vehicleFetchError}`]),
             "Return to the add-on to see the latest status.",
           ], createBackHref(path));
         })
-        .catch((error: unknown) =>
+        .catch((error: unknown) => {
+          if (provider === "tesla") {
+            lastTeslaCallbackResult = {
+              callbackHit: true,
+              tokenExchangeSuccess: false,
+              vehicleFetchAttempted: false,
+              message: error instanceof Error ? error.message : "Connection failed.",
+              recordedAt: new Date().toISOString(),
+            };
+          }
           writeAuthResultHtml(response, 400, `${labelProvider(provider)} connection failed`, [
             `Error: ${error instanceof Error ? error.message : "Connection failed."}`,
-            `Redirect URI used: ${provider === "tesla" ? config.teslaOAuthRedirectUri ?? "not configured" : config.tibberOAuthRedirectUri ?? "not configured"}`,
-          ], createBackHref(path)),
-        );
+            `Redirect URI used: ${provider === "tesla" ? createTeslaCallbackInfo(request).callbackUrl : config.tibberOAuthRedirectUri ?? "not configured"}`,
+          ], createBackHref(path));
+        });
       return;
     }
 
@@ -1032,6 +1108,7 @@ function createAppJsDiagnostics(): StaticDiagnostics & { first500Characters: str
 
 function logStartupDiagnostics(config: AppConfig): void {
   const diagnostics = createStaticDiagnostics();
+  logger.info("Version", `Energy Manager ${appVersion}`);
   logger.info("Server", `NODE_ENV=${process.env.NODE_ENV ?? "not set"}`);
   logger.info("Server", `PORT=${config.port}`);
   logger.info("Server", `working directory=${diagnostics.cwd}`);
@@ -1045,13 +1122,37 @@ function logStartupDiagnostics(config: AppConfig): void {
   }
 }
 
+function readAppVersion(): string {
+  const candidates = [
+    join(process.cwd(), "package.json"),
+    join(currentDir, "../../package.json"),
+  ];
+
+  for (const candidate of candidates) {
+    if (!existsSync(candidate)) {
+      continue;
+    }
+
+    try {
+      const parsed = JSON.parse(readFileSync(candidate, "utf8")) as { version?: unknown };
+      if (typeof parsed.version === "string" && parsed.version.length > 0) {
+        return parsed.version;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return "unknown";
+}
+
 function logIntegrationSetupStatus(config: AppConfig): void {
   const weatherConfigured = config.weatherLatitude !== null && config.weatherLongitude !== null;
   const solarConfigured = config.solarPanelTiltDegrees !== null && config.solarPanelAzimuthDegrees !== null;
   const chargerStatus = config.chargerProvider === "mock-charger" ? "mock-charger" : "planning-only";
 
   logger.info("Setup", `Tibber: ${config.tibberAccessToken !== null ? "configured" : "missing"}`);
-  logger.info("Setup", `Tesla OAuth: ${config.teslaOAuthClientId !== null && config.teslaOAuthClientSecret !== null && config.teslaOAuthRedirectUri !== null ? "configured" : "missing"}`);
+  logger.info("Setup", `Tesla OAuth: ${config.teslaOAuthClientId !== null && config.teslaOAuthClientSecret !== null ? "configured" : "missing"}`);
   logger.info("Setup", `Weather: ${weatherConfigured ? "configured" : "missing"}`);
   logger.info("Setup", `Solar: ${solarConfigured ? "configured" : "missing"}`);
   logger.info("Setup", `Charger: ${chargerStatus}`);
@@ -1060,8 +1161,7 @@ function logIntegrationSetupStatus(config: AppConfig): void {
 function createConfigDiagnostics(config: AppConfig) {
   const teslaOAuthConfigured =
     config.teslaOAuthClientId !== null
-    && config.teslaOAuthClientSecret !== null
-    && config.teslaOAuthRedirectUri !== null;
+    && config.teslaOAuthClientSecret !== null;
 
   return {
     tibberAccessTokenConfigured: config.tibberAccessToken !== null,
@@ -1072,8 +1172,6 @@ function createConfigDiagnostics(config: AppConfig) {
     teslaClientIdLength: config.teslaOAuthClientId?.length ?? 0,
     teslaClientSecretConfigured: config.teslaOAuthClientSecret !== null,
     teslaClientSecretLength: config.teslaOAuthClientSecret?.length ?? 0,
-    teslaRedirectUriConfigured: config.teslaOAuthRedirectUri !== null,
-    teslaRedirectUri: config.teslaOAuthRedirectUri,
     teslaRegion: config.teslaRegion,
   };
 }
@@ -1154,10 +1252,83 @@ function writeAuthResultHtml(
 </html>`);
 }
 
+interface TeslaCallbackInfo {
+  ingressBaseUrl: string;
+  callbackUrl: string;
+}
+
+interface TeslaCallbackResult {
+  callbackHit: boolean;
+  tokenExchangeSuccess: boolean;
+  vehicleFetchAttempted: boolean;
+  message: string;
+  recordedAt: string | null;
+}
+
+function createTeslaCallbackInfo(request: IncomingMessage): TeslaCallbackInfo {
+  const ingressBaseUrl = detectExternalIngressBaseUrl(request);
+  return {
+    ingressBaseUrl,
+    callbackUrl: `${ingressBaseUrl}/api/auth/tesla/callback`,
+  };
+}
+
+function detectExternalIngressBaseUrl(request: IncomingMessage): string {
+  const referer = firstHeader(request, "referer");
+  const refererBase = extractIngressBaseFromUrl(referer);
+  if (refererBase !== null) {
+    return refererBase;
+  }
+
+  const forwardedPrefix = firstHeader(request, "x-ingress-path")
+    ?? firstHeader(request, "x-forwarded-prefix")
+    ?? firstHeader(request, "x-external-prefix")
+    ?? "";
+  const forwardedHost = firstHeader(request, "x-forwarded-host") ?? firstHeader(request, "host") ?? "localhost:3000";
+  const forwardedProto = firstHeader(request, "x-forwarded-proto") ?? (forwardedHost.includes("localhost") ? "http" : "https");
+  return `${forwardedProto}://${forwardedHost}${normalizeUrlPath(forwardedPrefix)}`.replace(/\/+$/, "");
+}
+
+function extractIngressBaseFromUrl(value: string | null): string | null {
+  if (value === null || value.trim() === "") {
+    return null;
+  }
+
+  try {
+    const url = new URL(value);
+    const ingressMatch = /^(.*\/api\/hassio_ingress\/[^/]+)/.exec(url.pathname);
+    if (ingressMatch?.[1] !== undefined) {
+      return `${url.origin}${ingressMatch[1]}`.replace(/\/+$/, "");
+    }
+
+    return `${url.origin}${url.pathname.replace(/\/(?:auth|api)\/.*$/, "").replace(/\/+$/, "")}`;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeUrlPath(value: string): string {
+  if (value.trim() === "" || value === "/") {
+    return "";
+  }
+
+  return `/${value.replace(/^\/+|\/+$/g, "")}`;
+}
+
+function firstHeader(request: IncomingMessage, name: string): string | null {
+  const value = request.headers[name];
+  if (Array.isArray(value)) {
+    return value[0] ?? null;
+  }
+
+  return value ?? null;
+}
+
 function writeTeslaStartDebugHtml(
   response: ServerResponse,
   diagnostics: ProviderOAuthDiagnostics,
   authStart: AuthStartResult,
+  callbackInfo: TeslaCallbackInfo,
   backHref: string,
 ): void {
   response.statusCode = 200;
@@ -1208,7 +1379,9 @@ function writeTeslaStartDebugHtml(
       <dt>OAuth configured</dt><dd>${diagnostics.configured ? "yes" : "no"}</dd>
       <dt>Client ID configured</dt><dd>${diagnostics.clientIdConfigured ? "yes" : "no"}</dd>
       <dt>Client secret configured</dt><dd>${diagnostics.clientSecretConfigured ? "yes" : "no"}</dd>
-      <dt>Redirect URI</dt><dd>${escapeHtml(diagnostics.redirectUri ?? "not configured")}</dd>
+      <dt>Detected ingress URL</dt><dd>${escapeHtml(callbackInfo.ingressBaseUrl)}</dd>
+      <dt>EXACT redirect URI for Tesla Developer Console</dt><dd>${escapeHtml(callbackInfo.callbackUrl)}</dd>
+      <dt>Authorization URL redirect_uri matches generated callback</dt><dd>${authStart.redirectUri === callbackInfo.callbackUrl ? "yes" : "no"}</dd>
       <dt>Scopes</dt><dd>${escapeHtml(diagnostics.scopes.join(" "))}</dd>
       <dt>Authorization URL generated</dt><dd>${authStart.authorizationUrl === null ? "no" : "yes"}</dd>
       <dt>State generated</dt><dd>${authStart.stateGenerated ? "yes" : "no"}</dd>
@@ -1216,6 +1389,9 @@ function writeTeslaStartDebugHtml(
     </dl>
     <h2>Missing config</h2>
     <ul>${missing}</ul>
+    <label for="tesla-callback-url">Copy this redirect URI into Tesla Developer Console</label>
+    <textarea id="tesla-callback-url" rows="3" readonly>${escapeHtml(callbackInfo.callbackUrl)}</textarea>
+    <p><button type="button" data-copy-target="tesla-callback-url">Copy redirect URI</button></p>
     <h2>Authorization URL validation</h2>
     <ul>${validationErrors}</ul>
     ${authUrlControls}
@@ -1854,6 +2030,7 @@ function renderHtml(): string {
 
     <footer>
       <div id="ui-script-status">UI script not loaded</div>
+      <div>Energy Manager ${escapeHtml(appVersion)}</div>
     </footer>
   </main>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>

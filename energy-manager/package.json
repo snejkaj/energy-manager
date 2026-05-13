@@ -1,12 +1,13 @@
 {
   "name": "energy-manager",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Smart EV charging optimization for Home Assistant add-on packaging.",
   "type": "module",
   "scripts": {
-    "build": "npm run check:frontend && npm run lint && tsc -p tsconfig.json && npm run copy:static",
+    "build": "npm run check:version && npm run check:frontend && npm run lint && tsc -p tsconfig.json && npm run copy:static",
     "check:frontend": "node --check public/app.js",
+    "check:version": "node scripts/validate-version.mjs",
     "copy:static": "mkdir -p dist/public && cp -R public/. dist/public/",
     "format": "prettier --write \"public/**/*.js\" \"eslint.config.js\" \".prettierrc\"",
     "lint": "eslint \"public/**/*.js\"",

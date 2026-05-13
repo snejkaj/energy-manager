@@ -188,7 +188,6 @@ tesla_vehicle_id: ""
 tesla_region: "eu"
 tesla_client_id: ""
 tesla_client_secret: ""
-tesla_redirect_uri: ""
 tibber_oauth_client_id: ""
 tibber_oauth_client_secret: ""
 tibber_oauth_redirect_uri: ""
@@ -204,7 +203,7 @@ charging_efficiency: "0.9"
 
 When `TIBBER_ACCESS_TOKEN` is set, the app uses Tibber as the default electricity price provider and fetches today/tomorrow prices with a personal access token. Without the token, electricity and telemetry default to mock providers for local development. Charger control defaults to planning-only mode.
 
-Tesla can be connected from the UI with the `Connect Tesla` button after `tesla_client_id`, `tesla_client_secret`, and `tesla_redirect_uri` are configured. Tokens are stored server-side only after OAuth login. The app uses Tesla Fleet API in read-only mode to fetch battery state, plugged-in state, charging state, range, vehicle name, and online/asleep/offline state. It does not wake the vehicle and does not send vehicle commands. `tesla_region` defaults to `eu`; set it to `us` only for North America.
+Tesla can be connected from the UI with the `Connect Tesla` button after `tesla_client_id` and `tesla_client_secret` are configured. Tokens are stored server-side only after OAuth login. The add-on generates its own direct callback URL and shows the exact value on the Tesla OAuth debug page. The app uses Tesla Fleet API in read-only mode to fetch battery state, plugged-in state, charging state, range, vehicle name, and online/asleep/offline state. It does not wake the vehicle and does not send vehicle commands. `tesla_region` defaults to `eu`; set it to `us` only for North America.
 
 Most users do not need `tibber_home_id`.
 
@@ -400,18 +399,18 @@ Set:
 ```text
 TESLA_CLIENT_ID=
 TESLA_CLIENT_SECRET=
-TESLA_REDIRECT_URI=http://localhost:3000/api/auth/tesla/callback
 ```
 
 The app requests Tesla Fleet OAuth scopes `openid offline_access vehicle_device_data`. The add-on remains read-only: it does not wake the vehicle, start or stop charging, set current, or send vehicle commands.
 
 ### Home Assistant Redirects
 
-For a Home Assistant add-on, the redirect URI must match the externally reachable add-on URL. Localhost only works for local development. When using Home Assistant ingress, configure the OAuth client with the public HTTPS URL that reaches:
+Do not use `https://my.home-assistant.io/redirect/oauth` for this add-on.
+
+For a Home Assistant add-on, open **Open Tesla OAuth debug** in the add-on UI and copy the exact callback URL shown there into Tesla Developer Console. It will look like this:
 
 ```text
-/api/auth/tibber/callback
-/api/auth/tesla/callback
+https://xxxxx.ui.nabu.casa/api/hassio_ingress/abcdef/api/auth/tesla/callback
 ```
 
 ## Requirements

@@ -66,7 +66,6 @@ if [ -f "$CONFIG_PATH" ] && command -v jq >/dev/null 2>&1; then
   TIBBER_HOME_ID="$(jq -r '.tibber_home_id // empty' /data/options.json)"
   TESLA_CLIENT_ID="$(jq -r '.tesla_client_id // empty' /data/options.json)"
   TESLA_CLIENT_SECRET="$(jq -r '.tesla_client_secret // empty' /data/options.json)"
-  TESLA_REDIRECT_URI="$(jq -r '.tesla_redirect_uri // empty' /data/options.json)"
   TESLA_REGION="$(jq -r '.tesla_region // "eu"' /data/options.json)"
   TESLA_VEHICLE_ID="$(jq -r '.tesla_vehicle_id // empty' /data/options.json)"
 else
@@ -74,7 +73,6 @@ else
   TIBBER_HOME_ID="$(config_value 'tibber_home_id')"
   TESLA_CLIENT_ID="$(config_value 'tesla_client_id')"
   TESLA_CLIENT_SECRET="$(config_value 'tesla_client_secret')"
-  TESLA_REDIRECT_URI="$(config_value 'tesla_redirect_uri')"
   TESLA_REGION="$(config_value 'tesla_region')"
   TESLA_VEHICLE_ID="$(config_value 'tesla_vehicle_id')"
 fi
@@ -82,7 +80,6 @@ export TIBBER_ACCESS_TOKEN
 export TIBBER_HOME_ID
 export TESLA_CLIENT_ID
 export TESLA_CLIENT_SECRET
-export TESLA_REDIRECT_URI
 export TESLA_REGION
 export TESLA_VEHICLE_ID
 export TIBBER_OAUTH_CLIENT_ID="$(config_value 'tibber_oauth_client_id')"
@@ -114,7 +111,7 @@ log_info "[TibberConfig] TIBBER_ACCESS_TOKEN configured: $([ -n "$TIBBER_ACCESS_
 log_info "[TibberConfig] TIBBER_HOME_ID configured: $([ -n "$TIBBER_HOME_ID" ] && echo yes || echo no)"
 log_info "[TeslaConfig] client_id configured $([ -n "$TESLA_CLIENT_ID" ] && echo yes || echo no) length ${#TESLA_CLIENT_ID}"
 log_info "[TeslaConfig] client_secret configured $([ -n "$TESLA_CLIENT_SECRET" ] && echo yes || echo no) length ${#TESLA_CLIENT_SECRET}"
-log_info "[TeslaConfig] redirect_uri configured $([ -n "$TESLA_REDIRECT_URI" ] && echo yes || echo no) value ${TESLA_REDIRECT_URI:-not configured}"
+log_info "[TeslaConfig] redirect_uri generated automatically from add-on ingress URL"
 log_info "[TeslaConfig] region ${TESLA_REGION:-eu}"
 
 log_info "Starting Smart EV Charging Optimizer"

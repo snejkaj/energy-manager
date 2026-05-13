@@ -95,16 +95,14 @@ describe("loadConfig", () => {
     expect(config.setupNotes).toContain("Tesla region was not recognized. EU is used.");
   });
 
-  it("accepts Tesla OAuth environment names", () => {
+  it("accepts Tesla OAuth client environment names", () => {
     const config = loadConfig({
       TESLA_CLIENT_ID: " client-id ",
       TESLA_CLIENT_SECRET: " secret ",
-      TESLA_REDIRECT_URI: " https://example.test/api/auth/tesla/callback ",
     });
 
     expect(config.teslaOAuthClientId).toBe("client-id");
     expect(config.teslaOAuthClientSecret).toBe("secret");
-    expect(config.teslaOAuthRedirectUri).toBe("https://example.test/api/auth/tesla/callback");
   });
 
   it("does not use legacy Tesla OAuth environment aliases", () => {
@@ -116,6 +114,5 @@ describe("loadConfig", () => {
 
     expect(config.teslaOAuthClientId).toBeNull();
     expect(config.teslaOAuthClientSecret).toBeNull();
-    expect(config.teslaOAuthRedirectUri).toBeNull();
   });
 });

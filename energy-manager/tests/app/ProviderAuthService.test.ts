@@ -37,10 +37,9 @@ describe("ProviderAuthService", () => {
     const service = new ProviderAuthService(loadConfig({
       TESLA_CLIENT_ID: "client-id",
       TESLA_CLIENT_SECRET: "secret",
-      TESLA_REDIRECT_URI: "http://localhost:3000/api/auth/tesla/callback",
     }));
 
-    const result = service.startAuth("tesla");
+    const result = service.startAuth("tesla", "http://localhost:3000/api/auth/tesla/callback");
 
     expect(result.authorizationUrl).toContain("https://auth.tesla.com/oauth2/v3/authorize");
     expect(result.authorizationUrl).toContain("vehicle_device_data");
@@ -60,9 +59,9 @@ describe("ProviderAuthService", () => {
     const status = service.getConnectionStatus("tesla");
 
     expect(result.authorizationUrl).toBeNull();
-    expect(result.message).toBe("Missing Tesla Client ID. Missing Tesla Redirect URI");
+    expect(result.message).toBe("Missing Tesla Client ID");
     expect(status.oauthConfigured).toBe(false);
-    expect(status.setupMessages).toEqual(["Missing Tesla Client ID", "Missing Tesla Redirect URI"]);
+    expect(status.setupMessages).toEqual(["Missing Tesla Client ID"]);
   });
 
   it("persists Tesla OAuth tokens server-side across restart", async () => {
@@ -78,10 +77,9 @@ describe("ProviderAuthService", () => {
     const config = loadConfig({
       TESLA_CLIENT_ID: "client-id",
       TESLA_CLIENT_SECRET: "secret",
-      TESLA_REDIRECT_URI: "http://localhost:3000/api/auth/tesla/callback",
     });
     const service = new ProviderAuthService(config);
-    const start = service.startAuth("tesla");
+    const start = service.startAuth("tesla", "http://localhost:3000/api/auth/tesla/callback");
     const state = new URL(start.authorizationUrl ?? "").searchParams.get("state");
 
     await service.handleCallback("tesla", "authorization-code", state ?? "");

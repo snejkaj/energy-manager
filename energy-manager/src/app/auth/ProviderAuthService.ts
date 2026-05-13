@@ -57,6 +57,7 @@ interface PendingAuthState {
   state: string;
   createdAt: string;
   codeVerifier: string | null;
+  redirectUri: string;
 }
 
 interface OAuthTokenResponse {
@@ -87,12 +88,13 @@ export class ProviderAuthService {
     this.loadPersistedTokens();
   }
 
-  startAuth(provider: AuthProviderId): AuthStartResult {
+  startAuth(provider: AuthProviderId, redirectUriOverride?: string): AuthStartResult {
     const oauthConfig = getOAuthConfig(this.config, provider);
-    const missingConfig = getMissingOAuthConfig(this.config, provider);
+    const redirectUri = redirectUriOverride ?? oauthConfig.redirectUri;
+    const missingConfig = getMissingOAuthConfig(this.config, provider, redirectUri);
     logger.info("Auth", `${labelProvider(provider)} OAuth start called`);
     logger.info("Auth", `${labelProvider(provider)} OAuth configured=${missingConfig.length === 0}`);
-    logger.info("Auth", `${labelProvider(provider)} OAuth redirect_uri=${oauthConfig.redirectUri ?? "not configured"}`);
+    logger.info("Auth", `${labelProvider(provider)} OAuth redirect_uri=${redirectUri ?? "not configured"}`);
     logger.info("Auth", `${labelProvider(provider)} OAuth scopes=${oauthConfig.scope}`);
     if (missingConfig.length > 0) {
       logger.info("Auth", `${labelProvider(provider)} OAuth generated authorizationUrl=no`);
@@ -101,7 +103,7 @@ export class ProviderAuthService {
         provider,
         authorizationUrl: null,
         configured: false,
-        redirectUri: oauthConfig.redirectUri,
+        redirectUri,
         scopes: oauthConfig.scope.split(" "),
         stateGenerated: false,
         missingConfig,
@@ -112,7 +114,7 @@ export class ProviderAuthService {
     if (
       oauthConfig.clientId === null
       || oauthConfig.clientSecret === null
-      || oauthConfig.redirectUri === null
+      || redirectUri === null
     ) {
       throw new Error(`${labelProvider(provider)} OAuth configuration validation failed.`);
     }
@@ -125,12 +127,13 @@ export class ProviderAuthService {
       state,
       createdAt: new Date().toISOString(),
       codeVerifier: pkce?.verifier ?? null,
+      redirectUri,
     });
 
     const authorizationUrl = new URL(oauthConfig.authorizationEndpoint);
     authorizationUrl.searchParams.set("response_type", "code");
     authorizationUrl.searchParams.set("client_id", oauthConfig.clientId);
-    authorizationUrl.searchParams.set("redirect_uri", oauthConfig.redirectUri);
+    authorizationUrl.searchParams.set("redirect_uri", redirectUri);
     authorizationUrl.searchParams.set("scope", oauthConfig.scope);
     authorizationUrl.searchParams.set("state", state);
 
@@ -141,14 +144,14 @@ export class ProviderAuthService {
         authorizationUrl.searchParams.set("code_challenge", pkce.challenge);
         authorizationUrl.searchParams.set("code_challenge_method", "S256");
       }
-      logger.info("TeslaAuth", `Using Tesla OAuth redirect_uri: ${oauthConfig.redirectUri}`);
+      logger.info("TeslaAuth", `Using Tesla OAuth redirect_uri: ${redirectUri}`);
     }
 
     return {
       provider,
       authorizationUrl: authorizationUrl.toString(),
       configured: true,
-      redirectUri: oauthConfig.redirectUri,
+      redirectUri,
       scopes: oauthConfig.scope.split(" "),
       stateGenerated: true,
       missingConfig: [],
@@ -157,16 +160,17 @@ export class ProviderAuthService {
     };
   }
 
-  getOAuthDiagnostics(provider: AuthProviderId): ProviderOAuthDiagnostics {
+  getOAuthDiagnostics(provider: AuthProviderId, redirectUriOverride?: string): ProviderOAuthDiagnostics {
     const oauthConfig = getOAuthConfig(this.config, provider);
-    const missingConfig = getMissingOAuthConfig(this.config, provider);
+    const redirectUri = redirectUriOverride ?? oauthConfig.redirectUri;
+    const missingConfig = getMissingOAuthConfig(this.config, provider, redirectUri);
     return {
       provider,
       configured: missingConfig.length === 0,
       clientIdConfigured: oauthConfig.clientId !== null,
       clientSecretConfigured: oauthConfig.clientSecret !== null,
-      redirectUriConfigured: oauthConfig.redirectUri !== null,
-      redirectUri: oauthConfig.redirectUri,
+      redirectUriConfigured: redirectUri !== null,
+      redirectUri,
       scopes: oauthConfig.scope.split(" "),
       missingConfig,
     };
@@ -258,20 +262,24 @@ export class ProviderAuthService {
     return this.tokens.get(provider)?.accessToken ?? getEnvironmentToken(this.config, provider);
   }
 
+  hasPendingState(provider: AuthProviderId): boolean {
+    return [...this.pendingStates.values()].some((pendingState) => pendingState.provider === provider);
+  }
+
   private async exchangeCode(
     provider: AuthProviderId,
     code: string,
     pendingState: PendingAuthState,
   ): Promise<OAuthTokenResponse> {
     const oauthConfig = getOAuthConfig(this.config, provider);
-    if (oauthConfig.clientId === null || oauthConfig.clientSecret === null || oauthConfig.redirectUri === null) {
+    if (oauthConfig.clientId === null || oauthConfig.clientSecret === null) {
       throw new Error(`${labelProvider(provider)} OAuth client id, secret, and redirect URI must be configured.`);
     }
 
     const body = new URLSearchParams({
       grant_type: "authorization_code",
       code,
-      redirect_uri: oauthConfig.redirectUri,
+      redirect_uri: pendingState.redirectUri,
       client_id: oauthConfig.clientId,
       client_secret: oauthConfig.clientSecret,
     });
@@ -377,7 +385,7 @@ function getOAuthConfig(config: AppConfig, provider: AuthProviderId) {
   return {
     clientId: config.teslaOAuthClientId,
     clientSecret: config.teslaOAuthClientSecret,
-    redirectUri: config.teslaOAuthRedirectUri,
+    redirectUri: null,
     authorizationEndpoint: "https://auth.tesla.com/oauth2/v3/authorize",
     tokenEndpoint: "https://auth.tesla.com/oauth2/v3/token",
     scope: "openid offline_access vehicle_device_data",
@@ -391,7 +399,7 @@ function createTokenExchangeError(provider: AuthProviderId, status: number, resp
 
   const lowerResponse = responseText.toLowerCase();
   if (lowerResponse.includes("redirect") || lowerResponse.includes("invalid_grant")) {
-    return "Tesla login failed. Check that TESLA_REDIRECT_URI exactly matches the redirect URI in Tesla Developer Console.";
+    return "Tesla login failed. Check that the generated add-on callback URL exactly matches the redirect URI in Tesla Developer Console.";
   }
 
   return `Tesla token exchange failed with HTTP ${status}.`;
@@ -401,19 +409,18 @@ function getEnvironmentToken(config: AppConfig, provider: AuthProviderId): strin
   return provider === "tibber" ? config.tibberAccessToken : null;
 }
 
-function getMissingOAuthConfig(config: AppConfig, provider: AuthProviderId): string[] {
+function getMissingOAuthConfig(config: AppConfig, provider: AuthProviderId, redirectUriOverride?: string | null): string[] {
   if (provider === "tibber") {
     return [
       config.tibberOAuthClientId === null ? "Missing Tibber Client ID" : null,
       config.tibberOAuthClientSecret === null ? "Missing Tibber Client Secret" : null,
-      config.tibberOAuthRedirectUri === null ? "Missing Tibber Redirect URI" : null,
+      (redirectUriOverride ?? config.tibberOAuthRedirectUri) === null ? "Missing Tibber Redirect URI" : null,
     ].filter((message): message is string => message !== null);
   }
 
   return [
     config.teslaOAuthClientId === null ? "Missing Tesla Client ID" : null,
     config.teslaOAuthClientSecret === null ? "Missing Tesla Client Secret" : null,
-    config.teslaOAuthRedirectUri === null ? "Missing Tesla Redirect URI" : null,
   ].filter((message): message is string => message !== null);
 }
 

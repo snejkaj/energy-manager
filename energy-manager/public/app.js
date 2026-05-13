@@ -416,11 +416,13 @@ try {
   }
 
   function refreshConfigDiagnostics() {
-    return fetchJson("/debug/config")
-      .then((response) => response.json())
-      .then((data) => {
-        setDiag("diag-tesla-redirect-uri", data.teslaRedirectUri || "Not configured");
-        setDiag("diag-tesla-oauth-configured", data.teslaOAuthConfigured ? "yes" : "no");
+    return Promise.all([
+      fetchJson("/debug/config").then((response) => response.json()),
+      fetchJson("/debug/tesla/callback-info").then((response) => response.json()),
+    ])
+      .then(([config, callbackInfo]) => {
+        setDiag("diag-tesla-redirect-uri", callbackInfo.generatedCallbackUrl || "Not detected");
+        setDiag("diag-tesla-oauth-configured", config.teslaOAuthConfigured ? "yes" : "no");
         const debugLink = document.getElementById("tesla-oauth-debug-link");
         if (debugLink) {
           debugLink.setAttribute("href", apiUrl("/auth/tesla/start-debug"));

@@ -12,7 +12,6 @@ export interface AppConfig {
   tibberOAuthRedirectUri: string | null;
   teslaOAuthClientId: string | null;
   teslaOAuthClientSecret: string | null;
-  teslaOAuthRedirectUri: string | null;
   tokenEncryptionKey: string | null;
   electricityPriceProvider: string;
   homeTelemetryProvider: string;
@@ -51,7 +50,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     tibberOAuthRedirectUri: emptyToNull(env.TIBBER_OAUTH_REDIRECT_URI),
     teslaOAuthClientId: emptyToNull(trimEnv(env.TESLA_CLIENT_ID)),
     teslaOAuthClientSecret: emptyToNull(trimEnv(env.TESLA_CLIENT_SECRET)),
-    teslaOAuthRedirectUri: emptyToNull(trimEnv(env.TESLA_REDIRECT_URI)),
     tokenEncryptionKey: emptyToNull(env.TOKEN_ENCRYPTION_KEY),
     electricityPriceProvider: emptyToNull(env.ELECTRICITY_PRICE_PROVIDER) ?? defaultElectricityPriceProvider(env),
     homeTelemetryProvider: emptyToNull(env.HOME_TELEMETRY_PROVIDER) ?? defaultHomeTelemetryProvider(env),

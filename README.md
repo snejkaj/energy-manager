@@ -66,7 +66,6 @@ tesla_vehicle_id: ""
 tesla_region: "eu"
 tesla_client_id: ""
 tesla_client_secret: ""
-tesla_redirect_uri: ""
 tibber_oauth_client_id: ""
 tibber_oauth_client_secret: ""
 tibber_oauth_redirect_uri: ""
@@ -120,6 +119,17 @@ npm test
 npm run build
 docker build -t energy-manager-addon .
 ```
+
+## Versioning
+
+Every code or configuration change must bump the version. The add-on uses semantic versioning and the rules are in [VERSIONING.md](VERSIONING.md).
+
+Before opening a pull request:
+
+- Update `energy-manager/package.json`.
+- Update `energy-manager/package-lock.json`.
+- Update `energy-manager/config.yaml`.
+- Run `npm run build` from `energy-manager/`.
 
 ## README Maintenance Rule
 
