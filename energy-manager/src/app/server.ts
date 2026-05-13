@@ -168,13 +168,36 @@ export function startServer(): void {
       const authStart = authService.startAuth("tesla");
       logTeslaAuthStart(authStart);
       const validation = validateTeslaAuthorizationUrl(authStart.authorizationUrl);
+      const variants = createTeslaAuthorizationUrlVariants(authStart.authorizationUrl);
       writeJson(response, 200, {
         valid: validation.valid,
         authorizationUrl: authStart.authorizationUrl,
         missing: validation.missing,
         redirectUri: authStart.redirectUri,
         scopes: authStart.scopes,
+        variants: variants.map((variant) => ({
+          id: variant.id,
+          label: variant.label,
+          authorizationUrl: variant.authorizationUrl,
+          decodedParameters: variant.decodedParameters,
+          valid: variant.validation.valid,
+          missing: variant.validation.missing,
+        })),
       });
+      return;
+    }
+
+    if (request.method === "POST" && path === "/debug/tesla/oauth-variant-click") {
+      readRequestBody(request)
+        .then((body) => {
+          const variant = parseLoggedVariant(body);
+          logger.info("TeslaAuth", `OAuth variant clicked=${variant}`);
+          writeJson(response, 200, { ok: true });
+        })
+        .catch((error: unknown) => {
+          logger.error("TeslaAuth", `OAuth variant click log failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+          writeJson(response, 200, { ok: false });
+        });
       return;
     }
 
@@ -942,6 +965,24 @@ function writeText(response: ServerResponse, statusCode: number, body: string): 
   response.end(body);
 }
 
+async function readRequestBody(request: IncomingMessage): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of request) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+function parseLoggedVariant(body: string): string {
+  try {
+    const parsed = JSON.parse(body) as { variant?: unknown };
+    return typeof parsed.variant === "string" && parsed.variant.length > 0 ? parsed.variant : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
 interface StaticDiagnostics {
   cwd: string;
   staticDir: string;
@@ -1128,6 +1169,10 @@ function writeTeslaStartDebugHtml(
   const validationErrors = validation.missing.length === 0
     ? "<li>None</li>"
     : validation.missing.map((message) => `<li>${escapeHtml(message)}</li>`).join("");
+  const variants = createTeslaAuthorizationUrlVariants(authStart.authorizationUrl);
+  const variantCards = variants.length === 0
+    ? "<p>No variants available because no authorization URL was generated.</p>"
+    : variants.map(renderTeslaAuthorizationVariant).join("");
   const escapedAuthorizationUrl = authStart.authorizationUrl === null ? "" : escapeHtml(authStart.authorizationUrl);
   const authUrlControls = authStart.authorizationUrl === null
     ? "<p>No authorization URL generated.</p>"
@@ -1151,6 +1196,9 @@ function writeTeslaStartDebugHtml(
       dd { margin-left: 0; overflow-wrap: anywhere; }
       textarea { box-sizing: border-box; font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; max-width: 100%; width: 100%; }
       button { cursor: pointer; padding: 0.65rem 0.9rem; }
+      .variant { border: 1px solid #d1d5db; border-radius: 8px; margin: 1rem 0; padding: 1rem; }
+      .variant h3 { margin-top: 0; }
+      .actions { display: flex; flex-wrap: wrap; gap: 0.75rem; margin: 0.75rem 0; }
       a { color: #0f766e; }
     </style>
   </head>
@@ -1171,26 +1219,128 @@ function writeTeslaStartDebugHtml(
     <h2>Authorization URL validation</h2>
     <ul>${validationErrors}</ul>
     ${authUrlControls}
+    <h2>Tesla login variants</h2>
+    ${variantCards}
     <p><a href="${escapeHtml(backHref)}">Back to Energy Manager</a></p>
     <script>
-      const button = document.getElementById("copy-authorization-url");
-      if (button) {
-        button.addEventListener("click", async () => {
-          const textarea = document.getElementById("authorization-url");
-          if (!textarea) return;
-          try {
-            await navigator.clipboard.writeText(textarea.value);
-            button.textContent = "Copied";
-          } catch (_error) {
-            textarea.select();
-            document.execCommand("copy");
-            button.textContent = "Copied";
-          }
-        });
+      async function copyFromTextarea(textareaId, button) {
+        const textarea = document.getElementById(textareaId);
+        if (!textarea) return;
+        try {
+          await navigator.clipboard.writeText(textarea.value);
+          button.textContent = "Copied";
+        } catch (_error) {
+          textarea.select();
+          document.execCommand("copy");
+          button.textContent = "Copied";
+        }
       }
+
+      function logVariantClick(variant) {
+        console.log("[TeslaOAuthDebug] variant clicked", variant);
+        const payload = JSON.stringify({ variant });
+        if (navigator.sendBeacon) {
+          navigator.sendBeacon("../../debug/tesla/oauth-variant-click", new Blob([payload], { type: "application/json" }));
+          return;
+        }
+        fetch("../../debug/tesla/oauth-variant-click", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: payload,
+          keepalive: true,
+        }).catch(() => undefined);
+      }
+
+      document.querySelectorAll("[data-copy-target]").forEach((button) => {
+        button.addEventListener("click", () => copyFromTextarea(button.getAttribute("data-copy-target"), button));
+      });
+
+      document.querySelectorAll("[data-oauth-variant]").forEach((link) => {
+        link.addEventListener("click", () => logVariantClick(link.getAttribute("data-oauth-variant")));
+      });
     </script>
   </body>
 </html>`);
+}
+
+function renderTeslaAuthorizationVariant(variant: TeslaAuthorizationUrlVariant): string {
+  const escapedUrl = escapeHtml(variant.authorizationUrl);
+  const parameterRows = Object.entries(variant.decodedParameters)
+    .map(([key, value]) => `<dt>${escapeHtml(key)}</dt><dd>${escapeHtml(value)}</dd>`)
+    .join("");
+  const validationRows = variant.validation.missing.length === 0
+    ? "<li>None</li>"
+    : variant.validation.missing.map((message) => `<li>${escapeHtml(message)}</li>`).join("");
+  return `<section class="variant">
+    <h3>${escapeHtml(variant.label)}</h3>
+    <p>Valid: ${variant.validation.valid ? "yes" : "no"}</p>
+    <label for="authorization-url-${escapeHtml(variant.id)}">Authorization URL</label>
+    <textarea id="authorization-url-${escapeHtml(variant.id)}" rows="7" readonly>${escapedUrl}</textarea>
+    <div class="actions">
+      <button type="button" data-copy-target="authorization-url-${escapeHtml(variant.id)}">Copy ${escapeHtml(variant.id)}</button>
+      <a href="${escapedUrl}" data-oauth-variant="${escapeHtml(variant.id)}">Open Tesla login ${escapeHtml(variant.id)}</a>
+    </div>
+    <dl>
+      <dt>Raw link href</dt><dd>${escapedUrl}</dd>
+    </dl>
+    <h4>Decoded parameters</h4>
+    <dl>${parameterRows}</dl>
+    <h4>Validation issues</h4>
+    <ul>${validationRows}</ul>
+  </section>`;
+}
+
+interface TeslaAuthorizationUrlVariant {
+  id: string;
+  label: string;
+  authorizationUrl: string;
+  decodedParameters: Record<string, string>;
+  validation: ReturnType<typeof validateTeslaAuthorizationUrl>;
+}
+
+function createTeslaAuthorizationUrlVariants(authorizationUrl: string | null): TeslaAuthorizationUrlVariant[] {
+  if (authorizationUrl === null) {
+    return [];
+  }
+
+  const baseUrl = new URL(authorizationUrl);
+  baseUrl.searchParams.delete("audience");
+  baseUrl.searchParams.delete("prompt");
+
+  return [
+    createTeslaAuthorizationUrlVariant("A", "Variant A - minimal", baseUrl),
+    createTeslaAuthorizationUrlVariant("B", "Variant B - with audience", baseUrl, {
+      audience: "https://fleet-api.prd.eu.vn.cloud.tesla.com",
+    }),
+    createTeslaAuthorizationUrlVariant("C", "Variant C - with prompt", baseUrl, {
+      prompt: "login consent",
+    }),
+    createTeslaAuthorizationUrlVariant("D", "Variant D - with audience and prompt", baseUrl, {
+      audience: "https://fleet-api.prd.eu.vn.cloud.tesla.com",
+      prompt: "login consent",
+    }),
+  ];
+}
+
+function createTeslaAuthorizationUrlVariant(
+  id: string,
+  label: string,
+  baseUrl: URL,
+  extraParameters: Record<string, string> = {},
+): TeslaAuthorizationUrlVariant {
+  const url = new URL(baseUrl.toString());
+  for (const [key, value] of Object.entries(extraParameters)) {
+    url.searchParams.set(key, value);
+  }
+
+  const authorizationUrl = url.toString();
+  return {
+    id,
+    label,
+    authorizationUrl,
+    decodedParameters: Object.fromEntries(url.searchParams.entries()),
+    validation: validateTeslaAuthorizationUrl(authorizationUrl),
+  };
 }
 
 function logTeslaAuthStart(authStart: AuthStartResult): void {
