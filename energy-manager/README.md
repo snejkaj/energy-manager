@@ -273,6 +273,7 @@ curl http://localhost:3000/debug/static
 curl http://localhost:3000/debug/app-js
 curl http://localhost:3000/debug/html
 curl http://localhost:3000/debug/config
+curl http://localhost:3000/debug/tesla/oauth-last-error
 curl http://localhost:3000/api/status
 curl http://localhost:3000/api/plan
 curl http://localhost:3000/api/support/diagnostics
@@ -288,6 +289,7 @@ Expected result:
 - `/debug/app-js` shows the resolved `app.js` path and the first part of the served file
 - `/debug/html` shows the exact generated HTML, including the inline boot script and `/app.js` script tag
 - `/debug/config` shows whether Tibber token and home selection are configured, without exposing secrets
+- `/debug/tesla/oauth-last-error` shows the last Tesla OAuth/Fleet step, HTTP status, and safe error text
 - `/api/status` shows `demoMode: true` and `Planning only`
 - `/api/support/diagnostics` returns safe setup information without secrets
 - `/api/support/explain` returns a rule-based support explanation and copyable report

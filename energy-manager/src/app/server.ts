@@ -17,6 +17,7 @@ import { MockElectricityPriceProvider } from "../providers/mock/MockElectricityP
 import { ProviderRegistry } from "../providers/ProviderRegistry.js";
 import { OpenMeteoWeatherProvider } from "../providers/openMeteo/OpenMeteoWeatherProvider.js";
 import { TeslaClient } from "../providers/tesla/TeslaClient.js";
+import { getTeslaOAuthFleetLastError } from "../providers/tesla/TeslaDiagnostics.js";
 import { TeslaVehicleStateProvider } from "../providers/tesla/TeslaProvider.js";
 import { TibberGraphQLClient } from "../providers/tibber/TibberClient.js";
 import { TibberHomeTelemetryProvider, TibberPriceProvider } from "../providers/tibber/TibberProvider.js";
@@ -247,6 +248,11 @@ export function startServer(): void {
       return;
     }
 
+    if (request.method === "GET" && path === "/debug/tesla/oauth-last-error") {
+      writeJson(response, 200, getTeslaOAuthFleetLastError());
+      return;
+    }
+
     if (request.method === "POST" && path === "/debug/tesla/oauth-variant-click") {
       readRequestBody(request)
         .then((body) => {
@@ -369,6 +375,7 @@ export function startServer(): void {
           writeAuthResultHtml(response, 200, `${labelProvider(provider)} connected`, [
             provider === "tesla" ? `Vehicle fetch attempted: ${vehicleFetchAttempted ? "yes" : "no"}` : "Connection completed.",
             ...(vehicleFetchError === null ? [] : [`Tesla API error: ${vehicleFetchError}`]),
+            ...(provider === "tesla" ? [`Last Tesla OAuth/Fleet step: ${formatTeslaLastErrorSummary()}`] : []),
             "Return to the add-on to see the latest status.",
           ], createBackHref(path));
         })
@@ -386,6 +393,7 @@ export function startServer(): void {
           writeAuthResultHtml(response, 400, `${labelProvider(provider)} connection failed`, [
             `Error: ${error instanceof Error ? error.message : "Connection failed."}`,
             `Redirect URI used: ${provider === "tesla" ? createTeslaCallbackInfo(request).callbackUrl : config.tibberOAuthRedirectUri ?? "not configured"}`,
+            ...(provider === "tesla" ? [`Last Tesla OAuth/Fleet step: ${formatTeslaLastErrorSummary()}`] : []),
           ], createBackHref(path));
         });
       return;
@@ -1210,6 +1218,19 @@ function createConfigDiagnostics(config: AppConfig) {
   };
 }
 
+function formatTeslaLastErrorSummary(): string {
+  const lastError = getTeslaOAuthFleetLastError();
+  if (lastError.lastStep === null) {
+    return "No Tesla OAuth or Fleet API step recorded yet.";
+  }
+
+  return [
+    `step=${lastError.lastStep}`,
+    `status=${lastError.httpStatus ?? "unknown"}`,
+    `error=${lastError.safeError ?? "none"}`,
+  ].join(", ");
+}
+
 interface SupportEvent {
   message: string;
   recordedAt: string;
@@ -1231,6 +1252,7 @@ function createSupportDiagnostics(
   const callbackInfo = createTeslaCallbackInfo(request);
   const tibberStatus = authService.getConnectionStatus("tibber");
   const teslaStatus = authService.getConnectionStatus("tesla");
+  const teslaLastError = getTeslaOAuthFleetLastError();
   return {
     appVersion,
     addonVersion: appVersion,
@@ -1245,7 +1267,7 @@ function createSupportDiagnostics(
     teslaOAuthConfigured: teslaStatus.oauthConfigured,
     teslaConnected: teslaStatus.connected,
     lastApiError: formatSupportEvent(runtime.lastApiError),
-    lastOAuthError: formatSupportEvent(runtime.lastOAuthError),
+    lastOAuthError: formatSupportEvent(runtime.lastOAuthError) ?? teslaLastError.safeError,
     lastBuildConfigWarning: runtime.lastBuildConfigWarning,
     currentFallbackMode: {
       demoMode: onboarding.demoMode,
@@ -2108,6 +2130,14 @@ function renderHtml(): string {
           <dd id="diag-tesla-oauth-configured">Unknown</dd>
           <dt>Last Tesla OAuth error</dt>
           <dd id="diag-tesla-oauth-error">None</dd>
+          <dt>OAuth token exchange</dt>
+          <dd id="diag-tesla-token-exchange">Unknown</dd>
+          <dt>Vehicles fetch</dt>
+          <dd id="diag-tesla-vehicles-fetch">Unknown</dd>
+          <dt>Vehicle data fetch</dt>
+          <dd id="diag-tesla-vehicle-data-fetch">Unknown</dd>
+          <dt>Last Tesla HTTP status</dt>
+          <dd id="diag-tesla-http-status">Unknown</dd>
         </dl>
         <p><a id="tesla-oauth-debug-link" href="./auth/tesla/start-debug">Open Tesla OAuth debug</a></p>
       </div>

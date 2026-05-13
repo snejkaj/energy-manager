@@ -478,10 +478,18 @@ try {
     return Promise.all([
       fetchJson("/debug/config").then((response) => response.json()),
       fetchJson("/debug/tesla/callback-info").then((response) => response.json()),
+      fetchJson("/debug/tesla/oauth-last-error").then((response) => response.json()),
     ])
-      .then(([config, callbackInfo]) => {
+      .then(([config, callbackInfo, teslaLastError]) => {
         setDiag("diag-tesla-redirect-uri", callbackInfo.generatedCallbackUrl || "Not detected");
         setDiag("diag-tesla-oauth-configured", config.teslaOAuthConfigured ? "yes" : "no");
+        setDiag("diag-tesla-token-exchange", successLabel(teslaLastError.tokenExchangeSuccess));
+        setDiag("diag-tesla-vehicles-fetch", successLabel(teslaLastError.vehiclesFetchSuccess));
+        setDiag("diag-tesla-vehicle-data-fetch", successLabel(teslaLastError.vehicleDataFetchSuccess));
+        setDiag("diag-tesla-http-status", teslaLastError.httpStatus === null ? "None" : String(teslaLastError.httpStatus));
+        if (teslaLastError.safeError) {
+          setDiag("diag-tesla-oauth-error", teslaLastError.safeError);
+        }
         const debugLink = document.getElementById("tesla-oauth-debug-link");
         if (debugLink) {
           debugLink.setAttribute("href", apiUrl("/auth/tesla/start-debug"));
@@ -604,6 +612,12 @@ try {
 
   function formatNumber(value, unit) {
     return value === null || value === undefined ? "Unknown" : value + unit;
+  }
+
+  function successLabel(value) {
+    if (value === true) return "success";
+    if (value === false) return "fail";
+    return "not run";
   }
 
   let toastTimer;

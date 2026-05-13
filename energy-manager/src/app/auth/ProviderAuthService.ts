@@ -6,6 +6,12 @@ import { dirname, join } from "node:path";
 
 import type { AppConfig } from "../config.js";
 import { logger } from "../logger.js";
+import {
+  recordTeslaStepResult,
+  recordTeslaStepStart,
+  resetTeslaOAuthFleetDiagnostics,
+  sanitizeTeslaError,
+} from "../../providers/tesla/TeslaDiagnostics.js";
 
 export type AuthProviderId = "tibber" | "tesla";
 
@@ -92,6 +98,9 @@ export class ProviderAuthService {
     const oauthConfig = getOAuthConfig(this.config, provider);
     const redirectUri = redirectUriOverride ?? oauthConfig.redirectUri;
     const missingConfig = getMissingOAuthConfig(this.config, provider, redirectUri);
+    if (provider === "tesla") {
+      resetTeslaOAuthFleetDiagnostics(this.config.teslaRegion, redirectUri, oauthConfig.scope.split(" "));
+    }
     logger.info("Auth", `${labelProvider(provider)} OAuth start called`);
     logger.info("Auth", `${labelProvider(provider)} OAuth configured=${missingConfig.length === 0}`);
     logger.info("Auth", `${labelProvider(provider)} OAuth redirect_uri=${redirectUri ?? "not configured"}`);
@@ -290,6 +299,13 @@ export class ProviderAuthService {
         throw new Error("Tesla OAuth PKCE verifier is missing. Please start the connection again.");
       }
       body.set("code_verifier", pendingState.codeVerifier);
+      recordTeslaStepStart({
+        step: "token_exchange",
+        endpoint: oauthConfig.tokenEndpoint,
+        redirectUriUsed: pendingState.redirectUri,
+        scopesRequested: oauthConfig.scope.split(" "),
+        region: this.config.teslaRegion,
+      });
     }
 
     const response = await fetch(oauthConfig.tokenEndpoint, {
@@ -299,9 +315,35 @@ export class ProviderAuthService {
     });
 
     if (!response.ok) {
-      throw new Error(createTokenExchangeError(provider, response.status, await response.text()));
+      const responseText = await response.text();
+      const safeError = createTokenExchangeError(provider, response.status, responseText);
+      if (provider === "tesla") {
+        recordTeslaStepResult({
+          step: "token_exchange",
+          endpoint: oauthConfig.tokenEndpoint,
+          ok: false,
+          httpStatus: response.status,
+          safeError,
+          redirectUriUsed: pendingState.redirectUri,
+          scopesRequested: oauthConfig.scope.split(" "),
+          region: this.config.teslaRegion,
+        });
+      }
+      throw new Error(safeError);
     }
 
+    if (provider === "tesla") {
+      recordTeslaStepResult({
+        step: "token_exchange",
+        endpoint: oauthConfig.tokenEndpoint,
+        ok: true,
+        httpStatus: response.status,
+        safeError: null,
+        redirectUriUsed: pendingState.redirectUri,
+        scopesRequested: oauthConfig.scope.split(" "),
+        region: this.config.teslaRegion,
+      });
+    }
     return await response.json() as OAuthTokenResponse;
   }
 
@@ -397,12 +439,16 @@ function createTokenExchangeError(provider: AuthProviderId, status: number, resp
     return `${labelProvider(provider)} token exchange failed with HTTP ${status}.`;
   }
 
+  if (status === 401) {
+    return "Tesla rejected the token exchange. Check client secret and exact redirect URI.";
+  }
+
   const lowerResponse = responseText.toLowerCase();
   if (lowerResponse.includes("redirect") || lowerResponse.includes("invalid_grant")) {
     return "Tesla login failed. Check that the generated add-on callback URL exactly matches the redirect URI in Tesla Developer Console.";
   }
 
-  return `Tesla token exchange failed with HTTP ${status}.`;
+  return `Tesla token exchange failed with HTTP ${status}: ${sanitizeTeslaError(responseText)}`;
 }
 
 function getEnvironmentToken(config: AppConfig, provider: AuthProviderId): string | null {

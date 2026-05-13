@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ProviderAuthService } from "../../src/app/auth/ProviderAuthService.js";
 import { loadConfig } from "../../src/app/config.js";
+import { getTeslaOAuthFleetLastError } from "../../src/providers/tesla/TeslaDiagnostics.js";
 
 describe("ProviderAuthService", () => {
   beforeEach(() => {
@@ -87,6 +88,32 @@ describe("ProviderAuthService", () => {
 
     expect(reloadedService.getConnectionStatus("tesla").connected).toBe(true);
     expect(reloadedService.getAccessToken("tesla")).toBe("stored-access-token");
+  });
+
+  it("records token exchange 401 without exposing authorization code or secrets", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      error: "invalid_client",
+    }), {
+      status: 401,
+      headers: { "content-type": "application/json" },
+    })));
+
+    const service = new ProviderAuthService(loadConfig({
+      TESLA_CLIENT_ID: "client-id",
+      TESLA_CLIENT_SECRET: "secret-client-value",
+    }));
+    const start = service.startAuth("tesla", "http://localhost:3000/api/auth/tesla/callback");
+    const state = new URL(start.authorizationUrl ?? "").searchParams.get("state");
+
+    await expect(service.handleCallback("tesla", "authorization-code-secret", state ?? "")).rejects.toThrow(
+      "Tesla rejected the token exchange. Check client secret and exact redirect URI.",
+    );
+    const lastError = getTeslaOAuthFleetLastError();
+
+    expect(lastError.lastStep).toBe("token_exchange");
+    expect(lastError.httpStatus).toBe(401);
+    expect(JSON.stringify(lastError)).not.toContain("authorization-code-secret");
+    expect(JSON.stringify(lastError)).not.toContain("secret-client-value");
   });
 
   it("disconnects demo in-memory connections", () => {
