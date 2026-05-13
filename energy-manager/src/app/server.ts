@@ -211,7 +211,7 @@ export function startServer(): void {
     }
 
     if (request.method === "GET" && path === "/debug/tesla/authorization-url") {
-      const callbackInfo = createTeslaCallbackInfo(request);
+      const callbackInfo = createTeslaCallbackInfo(request, config);
       const authStart = authService.startAuth("tesla", callbackInfo.callbackUrl);
       logTeslaAuthStart(authStart);
       const validation = validateTeslaAuthorizationUrl(authStart.authorizationUrl);
@@ -237,13 +237,31 @@ export function startServer(): void {
     }
 
     if (request.method === "GET" && path === "/debug/tesla/callback-info") {
-      const callbackInfo = createTeslaCallbackInfo(request);
+      const callbackInfo = createTeslaCallbackInfo(request, config);
       writeJson(response, 200, {
         detectedIngressUrl: callbackInfo.ingressBaseUrl,
         generatedCallbackUrl: callbackInfo.callbackUrl,
+        selectedReason: callbackInfo.selectedReason,
+        httpsEnabled: callbackInfo.httpsEnabled,
+        publiclyReachable: callbackInfo.publiclyReachable,
         oauthStatePending: authService.hasPendingState("tesla"),
         lastCallbackResult: lastTeslaCallbackResult,
         tokenExchangeSuccess: lastTeslaCallbackResult.tokenExchangeSuccess,
+      });
+      return;
+    }
+
+    if (request.method === "GET" && path === "/debug/tesla/callback-selection") {
+      const callbackInfo = createTeslaCallbackInfo(request, config);
+      writeJson(response, 200, {
+        selectedCallbackUrl: callbackInfo.callbackUrl,
+        selectedReason: callbackInfo.selectedReason,
+        availableCandidates: callbackInfo.candidates,
+        https: callbackInfo.httpsEnabled,
+        ingressDetected: callbackInfo.ingressDetected,
+        nabuCasaDetected: callbackInfo.nabuCasaDetected,
+        publiclyReachable: callbackInfo.publiclyReachable,
+        warnings: callbackInfo.warnings,
       });
       return;
     }
@@ -275,7 +293,7 @@ export function startServer(): void {
     if (request.method === "POST" && (path === "/api/auth/tibber/start" || path === "/api/auth/tesla/start")) {
       const provider = getProviderFromPath(path);
       const authStart = provider === "tesla"
-        ? authService.startAuth(provider, createTeslaCallbackInfo(request).callbackUrl)
+        ? authService.startAuth(provider, createTeslaCallbackInfo(request, config).callbackUrl)
         : authService.startAuth(provider);
       if (provider === "tesla") {
         logTeslaAuthStart(authStart);
@@ -285,14 +303,14 @@ export function startServer(): void {
     }
 
     if (request.method === "GET" && path === "/api/auth/tesla/start") {
-      const authStart = authService.startAuth("tesla", createTeslaCallbackInfo(request).callbackUrl);
+      const authStart = authService.startAuth("tesla", createTeslaCallbackInfo(request, config).callbackUrl);
       logTeslaAuthStart(authStart);
       writeJson(response, 200, authStart);
       return;
     }
 
     if (request.method === "GET" && path === "/auth/tesla/start-debug") {
-      const callbackInfo = createTeslaCallbackInfo(request);
+      const callbackInfo = createTeslaCallbackInfo(request, config);
       const diagnostics = authService.getOAuthDiagnostics("tesla", callbackInfo.callbackUrl);
       const authStart = authService.startAuth("tesla", callbackInfo.callbackUrl);
       logTeslaAuthStart(authStart);
@@ -322,7 +340,7 @@ export function startServer(): void {
         writeAuthResultHtml(response, 400, "Tesla connection failed", [
           `Error code: ${oauthError}`,
           `Description: ${message}`,
-          `Redirect URI used: ${createTeslaCallbackInfo(request).callbackUrl}`,
+          `Redirect URI used: ${createTeslaCallbackInfo(request, config).callbackUrl ?? "not available"}`,
         ], createBackHref(path));
         lastTeslaCallbackResult = {
           callbackHit: true,
@@ -340,7 +358,7 @@ export function startServer(): void {
         lastOAuthError = createSupportEvent("Missing OAuth code or state.");
         writeAuthResultHtml(response, 400, "Tesla connection failed", [
           "Missing OAuth code or state.",
-          `Redirect URI used: ${createTeslaCallbackInfo(request).callbackUrl}`,
+          `Redirect URI used: ${createTeslaCallbackInfo(request, config).callbackUrl ?? "not available"}`,
         ], createBackHref(path));
         lastTeslaCallbackResult = {
           callbackHit: true,
@@ -392,7 +410,7 @@ export function startServer(): void {
           }
           writeAuthResultHtml(response, 400, `${labelProvider(provider)} connection failed`, [
             `Error: ${error instanceof Error ? error.message : "Connection failed."}`,
-            `Redirect URI used: ${provider === "tesla" ? createTeslaCallbackInfo(request).callbackUrl : config.tibberOAuthRedirectUri ?? "not configured"}`,
+            `Redirect URI used: ${provider === "tesla" ? createTeslaCallbackInfo(request, config).callbackUrl ?? "not available" : config.tibberOAuthRedirectUri ?? "not configured"}`,
             ...(provider === "tesla" ? [`Last Tesla OAuth/Fleet step: ${formatTeslaLastErrorSummary()}`] : []),
           ], createBackHref(path));
         });
@@ -1249,7 +1267,7 @@ function createSupportDiagnostics(
   authService: ProviderAuthService,
   runtime: SupportRuntimeState,
 ): SupportDiagnostics {
-  const callbackInfo = createTeslaCallbackInfo(request);
+  const callbackInfo = createTeslaCallbackInfo(request, config);
   const tibberStatus = authService.getConnectionStatus("tibber");
   const teslaStatus = authService.getConnectionStatus("tesla");
   const teslaLastError = getTeslaOAuthFleetLastError();
@@ -1276,7 +1294,7 @@ function createSupportDiagnostics(
     },
     homeAssistant: {
       detectedIngressUrl: maskUrl(callbackInfo.ingressBaseUrl),
-      generatedTeslaCallbackUrl: maskUrl(callbackInfo.callbackUrl),
+      generatedTeslaCallbackUrl: callbackInfo.callbackUrl === null ? "No HTTPS callback URL selected" : maskUrl(callbackInfo.callbackUrl),
       currentRequestUrl: maskUrl(createRequestUrl(request)),
     },
     setupNotes: [...onboarding.setupWarnings, ...onboarding.setupMessages].map(maskSensitiveText),
@@ -1455,7 +1473,27 @@ function writeAuthResultHtml(
 
 interface TeslaCallbackInfo {
   ingressBaseUrl: string;
+  callbackUrl: string | null;
+  selectedReason: string;
+  httpsEnabled: boolean;
+  publiclyReachable: boolean;
+  ingressDetected: boolean;
+  nabuCasaDetected: boolean;
+  warnings: string[];
+  candidates: TeslaCallbackCandidate[];
+}
+
+interface TeslaCallbackCandidate {
+  source: "nabu_casa_remote_url" | "home_assistant_external_url" | "ingress_https_url" | "local_fallback";
+  baseUrl: string;
   callbackUrl: string;
+  reason: string;
+  https: boolean;
+  publiclyReachable: boolean;
+  ingressDetected: boolean;
+  nabuCasaDetected: boolean;
+  warnings: string[];
+  selected: boolean;
 }
 
 interface TeslaCallbackResult {
@@ -1466,18 +1504,90 @@ interface TeslaCallbackResult {
   recordedAt: string | null;
 }
 
-function createTeslaCallbackInfo(request: IncomingMessage): TeslaCallbackInfo {
-  const ingressBaseUrl = detectExternalIngressBaseUrl(request);
+function createTeslaCallbackInfo(request: IncomingMessage, config?: AppConfig): TeslaCallbackInfo {
+  const selection = selectTeslaCallback(request, config);
+  const ingressBaseUrl = selection.selected?.baseUrl ?? selection.candidates[0]?.baseUrl ?? detectLocalFallbackBaseUrl(request);
   return {
     ingressBaseUrl,
-    callbackUrl: `${ingressBaseUrl}/api/auth/tesla/callback`,
+    callbackUrl: selection.selected?.callbackUrl ?? null,
+    selectedReason: selection.selected?.reason ?? "No HTTPS callback URL was available.",
+    httpsEnabled: selection.selected?.https ?? false,
+    publiclyReachable: selection.selected?.publiclyReachable ?? false,
+    ingressDetected: selection.candidates.some((candidate) => candidate.ingressDetected),
+    nabuCasaDetected: selection.candidates.some((candidate) => candidate.nabuCasaDetected),
+    warnings: selection.warnings,
+    candidates: selection.candidates.map((candidate) => ({
+      ...candidate,
+      selected: selection.selected?.callbackUrl === candidate.callbackUrl,
+    })),
   };
 }
 
-function detectExternalIngressBaseUrl(request: IncomingMessage): string {
+function selectTeslaCallback(
+  request: IncomingMessage,
+  config: AppConfig | undefined,
+): { selected: TeslaCallbackCandidate | null; candidates: TeslaCallbackCandidate[]; warnings: string[] } {
+  const candidates = createTeslaCallbackCandidates(request, config);
+  const secureCandidate = candidates.find((candidate) => candidate.https);
+  const selected = secureCandidate ?? (config?.teslaAllowInsecureCallback === true ? candidates[0] ?? null : null);
+  const warnings = [
+    ...(selected === null ? ["No HTTPS callback URL found. Tesla OAuth will not start until an external HTTPS URL is available."] : []),
+    ...(selected !== null && !selected.publiclyReachable ? ["Selected callback may not be publicly reachable."] : []),
+    ...(selected !== null ? selected.warnings : []),
+  ];
+  return { selected, candidates, warnings };
+}
+
+function createTeslaCallbackCandidates(request: IncomingMessage, config: AppConfig | undefined): TeslaCallbackCandidate[] {
+  const candidates: TeslaCallbackCandidate[] = [];
+  const addCandidate = (source: TeslaCallbackCandidate["source"], baseUrl: string | null, reason: string): void => {
+    const normalized = normalizeBaseUrl(baseUrl);
+    if (normalized === null || candidates.some((candidate) => candidate.baseUrl === normalized)) {
+      return;
+    }
+
+    candidates.push(createTeslaCallbackCandidate(source, normalized, reason));
+  };
+
+  addCandidate("nabu_casa_remote_url", config?.homeAssistantNabuCasaUrl ?? null, "Nabu Casa remote URL configured.");
+
+  const externalUrl = config?.homeAssistantExternalUrl ?? null;
+  if (isNabuCasaUrl(externalUrl)) {
+    addCandidate("nabu_casa_remote_url", externalUrl, "Home Assistant external URL is a Nabu Casa URL.");
+  } else {
+    addCandidate("home_assistant_external_url", externalUrl, "Home Assistant external URL configured.");
+  }
+
+  addCandidate("ingress_https_url", detectIngressBaseUrl(request, true), "HTTPS Home Assistant ingress URL detected from request headers.");
+  addCandidate("local_fallback", detectLocalFallbackBaseUrl(request), "Local fallback from current request. Use only for development.");
+  return candidates;
+}
+
+function createTeslaCallbackCandidate(
+  source: TeslaCallbackCandidate["source"],
+  baseUrl: string,
+  reason: string,
+): TeslaCallbackCandidate {
+  const url = new URL(baseUrl);
+  const warnings = createCallbackWarnings(url);
+  return {
+    source,
+    baseUrl,
+    callbackUrl: `${baseUrl}/api/auth/tesla/callback`,
+    reason,
+    https: url.protocol === "https:",
+    publiclyReachable: url.protocol === "https:" && warnings.length === 0,
+    ingressDetected: url.pathname.includes("/api/hassio_ingress/"),
+    nabuCasaDetected: isNabuCasaUrl(baseUrl),
+    warnings,
+    selected: false,
+  };
+}
+
+function detectIngressBaseUrl(request: IncomingMessage, httpsOnly: boolean): string | null {
   const referer = firstHeader(request, "referer");
   const refererBase = extractIngressBaseFromUrl(referer);
-  if (refererBase !== null) {
+  if (refererBase !== null && (!httpsOnly || refererBase.startsWith("https://"))) {
     return refererBase;
   }
 
@@ -1487,7 +1597,12 @@ function detectExternalIngressBaseUrl(request: IncomingMessage): string {
     ?? "";
   const forwardedHost = firstHeader(request, "x-forwarded-host") ?? firstHeader(request, "host") ?? "localhost:3000";
   const forwardedProto = firstHeader(request, "x-forwarded-proto") ?? (forwardedHost.includes("localhost") ? "http" : "https");
-  return `${forwardedProto}://${forwardedHost}${normalizeUrlPath(forwardedPrefix)}`.replace(/\/+$/, "");
+  const baseUrl = `${forwardedProto}://${forwardedHost}${normalizeUrlPath(forwardedPrefix)}`.replace(/\/+$/, "");
+  return !httpsOnly || baseUrl.startsWith("https://") ? baseUrl : null;
+}
+
+function detectLocalFallbackBaseUrl(request: IncomingMessage): string {
+  return detectIngressBaseUrl(request, false) ?? "http://localhost:3000";
 }
 
 function extractIngressBaseFromUrl(value: string | null): string | null {
@@ -1506,6 +1621,62 @@ function extractIngressBaseFromUrl(value: string | null): string | null {
   } catch {
     return null;
   }
+}
+
+function normalizeBaseUrl(value: string | null | undefined): string | null {
+  if (value === null || value === undefined || value.trim() === "") {
+    return null;
+  }
+
+  try {
+    const url = new URL(value.trim());
+    url.username = "";
+    url.password = "";
+    url.search = "";
+    url.hash = "";
+    return `${url.origin}${url.pathname.replace(/\/+$/, "")}`.replace(/\/+$/, "");
+  } catch {
+    return null;
+  }
+}
+
+function createCallbackWarnings(url: URL): string[] {
+  return [
+    url.protocol !== "https:" ? "Callback URL uses http://. Tesla OAuth requires HTTPS unless developer override is enabled." : null,
+    isLocalHost(url.hostname) ? "Callback URL uses localhost." : null,
+    isPrivateIp(url.hostname) ? "Callback URL uses a local/private IP address." : null,
+    url.hostname.endsWith(".local") ? "Callback URL uses a .local hostname." : null,
+  ].filter((warning): warning is string => warning !== null);
+}
+
+function isNabuCasaUrl(value: string | null | undefined): boolean {
+  if (value === null || value === undefined) {
+    return false;
+  }
+
+  try {
+    return new URL(value).hostname.endsWith(".ui.nabu.casa");
+  } catch {
+    return false;
+  }
+}
+
+function isLocalHost(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+}
+
+function isPrivateIp(hostname: string): boolean {
+  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(hostname);
+  if (ipv4 === null) {
+    return false;
+  }
+
+  const first = Number(ipv4[1]);
+  const second = Number(ipv4[2]);
+  return first === 10
+    || (first === 172 && second >= 16 && second <= 31)
+    || (first === 192 && second === 168)
+    || (first === 169 && second === 254);
 }
 
 function normalizeUrlPath(value: string): string {
@@ -1541,6 +1712,12 @@ function writeTeslaStartDebugHtml(
   const validationErrors = validation.missing.length === 0
     ? "<li>None</li>"
     : validation.missing.map((message) => `<li>${escapeHtml(message)}</li>`).join("");
+  const callbackWarnings = callbackInfo.warnings.length === 0
+    ? "<li>None</li>"
+    : callbackInfo.warnings.map((message) => `<li>${escapeHtml(message)}</li>`).join("");
+  const callbackCandidates = callbackInfo.candidates
+    .map((candidate) => `<li>${candidate.selected ? "<strong>Selected:</strong> " : ""}${escapeHtml(candidate.source)} - ${escapeHtml(candidate.callbackUrl)} (${candidate.reason}; HTTPS: ${candidate.https ? "yes" : "no"}; public: ${candidate.publiclyReachable ? "yes" : "no"})${candidate.warnings.length === 0 ? "" : ` Warnings: ${escapeHtml(candidate.warnings.join(" "))}`}</li>`)
+    .join("");
   const variants = createTeslaAuthorizationUrlVariants(authStart.authorizationUrl);
   const variantCards = variants.length === 0
     ? "<p>No variants available because no authorization URL was generated.</p>"
@@ -1580,8 +1757,14 @@ function writeTeslaStartDebugHtml(
       <dt>OAuth configured</dt><dd>${diagnostics.configured ? "yes" : "no"}</dd>
       <dt>Client ID configured</dt><dd>${diagnostics.clientIdConfigured ? "yes" : "no"}</dd>
       <dt>Client secret configured</dt><dd>${diagnostics.clientSecretConfigured ? "yes" : "no"}</dd>
+      <dt>Selected callback URL</dt><dd>${escapeHtml(callbackInfo.callbackUrl ?? "No HTTPS callback URL selected")}</dd>
+      <dt>Why selected</dt><dd>${escapeHtml(callbackInfo.selectedReason)}</dd>
+      <dt>HTTPS enabled</dt><dd>${callbackInfo.httpsEnabled ? "yes" : "no"}</dd>
+      <dt>Publicly reachable</dt><dd>${callbackInfo.publiclyReachable ? "yes" : "no"}</dd>
+      <dt>Nabu Casa detected</dt><dd>${callbackInfo.nabuCasaDetected ? "yes" : "no"}</dd>
+      <dt>Ingress detected</dt><dd>${callbackInfo.ingressDetected ? "yes" : "no"}</dd>
       <dt>Detected ingress URL</dt><dd>${escapeHtml(callbackInfo.ingressBaseUrl)}</dd>
-      <dt>EXACT redirect URI for Tesla Developer Console</dt><dd>${escapeHtml(callbackInfo.callbackUrl)}</dd>
+      <dt>EXACT redirect URI for Tesla Developer Console</dt><dd>${escapeHtml(callbackInfo.callbackUrl ?? "No HTTPS callback URL selected")}</dd>
       <dt>Authorization URL redirect_uri matches generated callback</dt><dd>${authStart.redirectUri === callbackInfo.callbackUrl ? "yes" : "no"}</dd>
       <dt>Scopes</dt><dd>${escapeHtml(diagnostics.scopes.join(" "))}</dd>
       <dt>Authorization URL generated</dt><dd>${authStart.authorizationUrl === null ? "no" : "yes"}</dd>
@@ -1590,8 +1773,12 @@ function writeTeslaStartDebugHtml(
     </dl>
     <h2>Missing config</h2>
     <ul>${missing}</ul>
+    <h2>Callback warnings</h2>
+    <ul>${callbackWarnings}</ul>
+    <h2>Callback candidates</h2>
+    <ul>${callbackCandidates || "<li>None</li>"}</ul>
     <label for="tesla-callback-url">Copy this redirect URI into Tesla Developer Console</label>
-    <textarea id="tesla-callback-url" rows="3" readonly>${escapeHtml(callbackInfo.callbackUrl)}</textarea>
+    <textarea id="tesla-callback-url" rows="3" readonly>${escapeHtml(callbackInfo.callbackUrl ?? "")}</textarea>
     <p><button type="button" data-copy-target="tesla-callback-url">Copy redirect URI</button></p>
     <h2>Authorization URL validation</h2>
     <ul>${validationErrors}</ul>

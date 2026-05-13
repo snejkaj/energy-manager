@@ -12,6 +12,9 @@ export interface AppConfig {
   tibberOAuthRedirectUri: string | null;
   teslaOAuthClientId: string | null;
   teslaOAuthClientSecret: string | null;
+  homeAssistantNabuCasaUrl: string | null;
+  homeAssistantExternalUrl: string | null;
+  teslaAllowInsecureCallback: boolean;
   tokenEncryptionKey: string | null;
   electricityPriceProvider: string;
   homeTelemetryProvider: string;
@@ -50,6 +53,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     tibberOAuthRedirectUri: emptyToNull(env.TIBBER_OAUTH_REDIRECT_URI),
     teslaOAuthClientId: emptyToNull(trimEnv(env.TESLA_CLIENT_ID)),
     teslaOAuthClientSecret: emptyToNull(trimEnv(env.TESLA_CLIENT_SECRET)),
+    homeAssistantNabuCasaUrl: emptyToNull(trimEnv(env.HOME_ASSISTANT_NABU_CASA_URL ?? env.NABU_CASA_REMOTE_URL)),
+    homeAssistantExternalUrl: emptyToNull(trimEnv(env.HOME_ASSISTANT_EXTERNAL_URL ?? env.HA_EXTERNAL_URL)),
+    teslaAllowInsecureCallback: parseBoolean(env.TESLA_ALLOW_INSECURE_CALLBACK, false, "Tesla insecure callback override", setupNotes),
     tokenEncryptionKey: emptyToNull(env.TOKEN_ENCRYPTION_KEY),
     electricityPriceProvider: emptyToNull(env.ELECTRICITY_PRICE_PROVIDER) ?? defaultElectricityPriceProvider(env),
     homeTelemetryProvider: emptyToNull(env.HOME_TELEMETRY_PROVIDER) ?? defaultHomeTelemetryProvider(env),

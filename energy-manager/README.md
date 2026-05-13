@@ -189,6 +189,8 @@ tesla_vehicle_id: ""
 tesla_region: "eu"
 tesla_client_id: ""
 tesla_client_secret: ""
+home_assistant_nabu_casa_url: ""
+home_assistant_external_url: ""
 tibber_oauth_client_id: ""
 tibber_oauth_client_secret: ""
 tibber_oauth_redirect_uri: ""
@@ -273,6 +275,7 @@ curl http://localhost:3000/debug/static
 curl http://localhost:3000/debug/app-js
 curl http://localhost:3000/debug/html
 curl http://localhost:3000/debug/config
+curl http://localhost:3000/debug/tesla/callback-selection
 curl http://localhost:3000/debug/tesla/oauth-last-error
 curl http://localhost:3000/api/status
 curl http://localhost:3000/api/plan
@@ -289,6 +292,7 @@ Expected result:
 - `/debug/app-js` shows the resolved `app.js` path and the first part of the served file
 - `/debug/html` shows the exact generated HTML, including the inline boot script and `/app.js` script tag
 - `/debug/config` shows whether Tibber token and home selection are configured, without exposing secrets
+- `/debug/tesla/callback-selection` shows which Tesla callback URL was selected and why
 - `/debug/tesla/oauth-last-error` shows the last Tesla OAuth/Fleet step, HTTP status, and safe error text
 - `/api/status` shows `demoMode: true` and `Planning only`
 - `/api/support/diagnostics` returns safe setup information without secrets
@@ -434,6 +438,15 @@ For a Home Assistant add-on, open **Open Tesla OAuth debug** in the add-on UI an
 ```text
 https://xxxxx.ui.nabu.casa/api/hassio_ingress/abcdef/api/auth/tesla/callback
 ```
+
+Tesla OAuth uses an HTTPS callback by default. The add-on chooses callback URLs in this order:
+
+1. Nabu Casa remote URL
+2. Home Assistant external URL
+3. HTTPS ingress URL
+4. Local fallback only for development
+
+If the debug page shows `http://`, `localhost`, a local IP address, or `.local`, fix the external Home Assistant URL before connecting Tesla. Local HTTP callbacks are rejected unless `tesla_allow_insecure_callback` is explicitly enabled for development.
 
 ## Requirements
 

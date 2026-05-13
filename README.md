@@ -66,6 +66,8 @@ tesla_vehicle_id: ""
 tesla_region: "eu"
 tesla_client_id: ""
 tesla_client_secret: ""
+home_assistant_nabu_casa_url: ""
+home_assistant_external_url: ""
 tibber_oauth_client_id: ""
 tibber_oauth_client_secret: ""
 tibber_oauth_redirect_uri: ""
@@ -133,6 +135,19 @@ Click **Diagnose setup** to get a safe setup report with:
 - the last known setup, API, or OAuth issue
 
 Click **Copy support report** when asking for help. The report is designed to avoid tokens, client secrets, refresh tokens, authorization codes, and personal URLs.
+
+## Tesla OAuth Callback
+
+Tesla OAuth should use a public HTTPS callback URL.
+
+Energy Manager prefers callback URLs in this order:
+
+1. Nabu Casa remote URL
+2. Home Assistant external URL
+3. HTTPS ingress URL
+4. Local fallback only for development
+
+Open **Tesla OAuth debug** in the add-on UI to see the selected callback URL and why it was chosen. Local `http://`, `localhost`, local IP, and `.local` callbacks are warned about and are not used by default for Tesla OAuth.
 
 ## Versioning
 

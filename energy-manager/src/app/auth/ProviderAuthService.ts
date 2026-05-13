@@ -94,10 +94,10 @@ export class ProviderAuthService {
     this.loadPersistedTokens();
   }
 
-  startAuth(provider: AuthProviderId, redirectUriOverride?: string): AuthStartResult {
+  startAuth(provider: AuthProviderId, redirectUriOverride?: string | null): AuthStartResult {
     const oauthConfig = getOAuthConfig(this.config, provider);
-    const redirectUri = redirectUriOverride ?? oauthConfig.redirectUri;
-    const missingConfig = getMissingOAuthConfig(this.config, provider, redirectUri);
+    const redirectUri = redirectUriOverride === undefined ? oauthConfig.redirectUri : redirectUriOverride;
+    const missingConfig = getMissingOAuthConfig(this.config, provider, redirectUriOverride);
     if (provider === "tesla") {
       resetTeslaOAuthFleetDiagnostics(this.config.teslaRegion, redirectUri, oauthConfig.scope.split(" "));
     }
@@ -169,10 +169,10 @@ export class ProviderAuthService {
     };
   }
 
-  getOAuthDiagnostics(provider: AuthProviderId, redirectUriOverride?: string): ProviderOAuthDiagnostics {
+  getOAuthDiagnostics(provider: AuthProviderId, redirectUriOverride?: string | null): ProviderOAuthDiagnostics {
     const oauthConfig = getOAuthConfig(this.config, provider);
-    const redirectUri = redirectUriOverride ?? oauthConfig.redirectUri;
-    const missingConfig = getMissingOAuthConfig(this.config, provider, redirectUri);
+    const redirectUri = redirectUriOverride === undefined ? oauthConfig.redirectUri : redirectUriOverride;
+    const missingConfig = getMissingOAuthConfig(this.config, provider, redirectUriOverride);
     return {
       provider,
       configured: missingConfig.length === 0,
@@ -467,6 +467,7 @@ function getMissingOAuthConfig(config: AppConfig, provider: AuthProviderId, redi
   return [
     config.teslaOAuthClientId === null ? "Missing Tesla Client ID" : null,
     config.teslaOAuthClientSecret === null ? "Missing Tesla Client Secret" : null,
+    redirectUriOverride === null ? "Tesla callback URL must be HTTPS and public. Open Tesla OAuth debug for details." : null,
   ].filter((message): message is string => message !== null);
 }
 
