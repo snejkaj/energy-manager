@@ -260,6 +260,8 @@ export function startServer(): void {
         https: callbackInfo.httpsEnabled,
         ingressDetected: callbackInfo.ingressDetected,
         nabuCasaDetected: callbackInfo.nabuCasaDetected,
+        ingressCallbackSupported: callbackInfo.ingressCallbackSupported,
+        publicCallbackUrlConfigured: callbackInfo.publicCallbackConfigured,
         publiclyReachable: callbackInfo.publiclyReachable,
         warnings: callbackInfo.warnings,
       });
@@ -1253,12 +1255,15 @@ function logIntegrationSetupStatus(config: AppConfig): void {
   logger.info("Setup", `Charger: ${chargerStatus}`);
   logger.info("TeslaConfig", `external_base_url detected=${config.externalBaseUrl !== null ? "yes" : "no"}`);
   logger.info("TeslaConfig", `external_base_url preview=${config.externalBaseUrl === null ? "not configured" : maskUrlPreview(config.externalBaseUrl)}`);
+  logger.info("TeslaConfig", `tesla_public_callback_url detected=${config.teslaPublicCallbackUrl !== null ? "yes" : "no"}`);
+  logger.info("TeslaConfig", `tesla_public_callback_url preview=${config.teslaPublicCallbackUrl === null ? "not configured" : maskUrlPreview(config.teslaPublicCallbackUrl)}`);
 }
 
 function createConfigDiagnostics(config: AppConfig, request: IncomingMessage) {
   const teslaOAuthConfigured =
     config.teslaOAuthClientId !== null
-    && config.teslaOAuthClientSecret !== null;
+    && config.teslaOAuthClientSecret !== null
+    && config.teslaPublicCallbackUrl !== null;
   const callbackInfo = createTeslaCallbackInfo(request, config);
 
   return {
@@ -1271,6 +1276,8 @@ function createConfigDiagnostics(config: AppConfig, request: IncomingMessage) {
     teslaClientSecretConfigured: config.teslaOAuthClientSecret !== null,
     teslaClientSecretLength: config.teslaOAuthClientSecret?.length ?? 0,
     teslaRegion: config.teslaRegion,
+    teslaPublicCallbackUrlConfigured: config.teslaPublicCallbackUrl !== null,
+    teslaPublicCallbackUrl: config.teslaPublicCallbackUrl === null ? null : maskUrl(config.teslaPublicCallbackUrl),
     externalBaseUrlConfigured: config.externalBaseUrl !== null,
     externalBaseUrl: config.externalBaseUrl === null ? null : maskUrl(config.externalBaseUrl),
     externalBaseUrlPreview: config.externalBaseUrl === null ? null : maskUrlPreview(config.externalBaseUrl),
@@ -1282,6 +1289,8 @@ function createConfigDiagnostics(config: AppConfig, request: IncomingMessage) {
       publiclyReachable: callbackInfo.publiclyReachable,
       ingressDetected: callbackInfo.ingressDetected,
       nabuCasaDetected: callbackInfo.nabuCasaDetected,
+      ingressCallbackSupported: callbackInfo.ingressCallbackSupported,
+      publicCallbackConfigured: callbackInfo.publicCallbackConfigured,
       warnings: callbackInfo.warnings,
     },
   };
@@ -1564,12 +1573,20 @@ interface TeslaCallbackInfo {
   publiclyReachable: boolean;
   ingressDetected: boolean;
   nabuCasaDetected: boolean;
+  ingressCallbackSupported: boolean;
+  publicCallbackConfigured: boolean;
   warnings: string[];
   candidates: TeslaCallbackCandidate[];
 }
 
 interface TeslaCallbackCandidate {
-  source: "external_base_url" | "nabu_casa_url" | "home_assistant_external_url" | "ingress_https_url" | "local_fallback";
+  source:
+    | "tesla_public_callback_url"
+    | "external_base_url"
+    | "nabu_casa_url"
+    | "home_assistant_external_url"
+    | "ingress_https_url"
+    | "development_local_callback";
   baseUrl: string;
   callbackUrl: string;
   reason: string;
@@ -1595,11 +1612,13 @@ function createTeslaCallbackInfo(request: IncomingMessage, config?: AppConfig): 
   return {
     ingressBaseUrl,
     callbackUrl: selection.selected?.callbackUrl ?? null,
-    selectedReason: selection.selected?.reason ?? "No HTTPS callback URL was available.",
+    selectedReason: selection.selected?.reason ?? "No public Tesla callback URL was configured.",
     httpsEnabled: selection.selected?.https ?? false,
     publiclyReachable: selection.selected?.publiclyReachable ?? false,
     ingressDetected: selection.candidates.some((candidate) => candidate.ingressDetected),
     nabuCasaDetected: selection.candidates.some((candidate) => candidate.nabuCasaDetected),
+    ingressCallbackSupported: false,
+    publicCallbackConfigured: config?.teslaPublicCallbackUrl !== null && config?.teslaPublicCallbackUrl !== undefined,
     warnings: selection.warnings,
     candidates: selection.candidates.map((candidate) => ({
       ...candidate,
@@ -1613,31 +1632,50 @@ function selectTeslaCallback(
   config: AppConfig | undefined,
 ): { selected: TeslaCallbackCandidate | null; candidates: TeslaCallbackCandidate[]; warnings: string[] } {
   const candidates = createTeslaCallbackCandidates(request, config);
-  const secureCandidate = candidates.find((candidate) => candidate.https);
-  const selected = secureCandidate ?? (config?.teslaAllowInsecureCallback === true ? candidates[0] ?? null : null);
+  const selected = candidates.find((candidate) => isSelectableTeslaCallbackCandidate(candidate, config)) ?? null;
   const warnings = [
-    ...(selected === null ? ["No HTTPS callback URL found. Tesla OAuth will not start until an external HTTPS URL is available."] : []),
+    "Tesla callbacks cannot use Home Assistant Ingress because Tesla returns without HA session headers.",
+    ...(selected === null ? ["Tesla OAuth requires a public callback URL, for example through Nabu Casa ingress alternative, reverse proxy, or cloud relay."] : []),
     ...(selected !== null && !selected.publiclyReachable ? ["Selected callback may not be publicly reachable."] : []),
+    ...(selected?.callbackUrl.includes("/api/hassio_ingress/") === true ? ["Selected redirect URI contains /api/hassio_ingress and will fail behind Home Assistant Ingress."] : []),
     ...(selected !== null ? selected.warnings : []),
   ];
   return { selected, candidates, warnings };
+}
+
+function isSelectableTeslaCallbackCandidate(candidate: TeslaCallbackCandidate, config: AppConfig | undefined): boolean {
+  if (candidate.source === "tesla_public_callback_url") {
+    return candidate.https && !candidate.ingressDetected && candidate.publiclyReachable;
+  }
+
+  if (candidate.source === "development_local_callback") {
+    return process.env.NODE_ENV === "development" && config?.teslaAllowInsecureCallback === true;
+  }
+
+  return false;
 }
 
 function createTeslaCallbackCandidates(request: IncomingMessage, config: AppConfig | undefined): TeslaCallbackCandidate[] {
   const candidates: TeslaCallbackCandidate[] = [];
   const addCandidate = (
     source: TeslaCallbackCandidate["source"],
-    baseUrl: string | null,
+    callbackUrl: string | null,
     reason: string,
     extraWarnings: string[] = [],
   ): void => {
-    const normalized = normalizeBaseUrl(baseUrl);
-    if (normalized === null || candidates.some((candidate) => candidate.baseUrl === normalized)) {
+    const normalized = normalizeCallbackUrl(callbackUrl);
+    if (normalized === null || candidates.some((candidate) => candidate.callbackUrl === normalized)) {
       return;
     }
 
     candidates.push(createTeslaCallbackCandidate(source, normalized, reason, extraWarnings));
   };
+
+  addCandidate(
+    "tesla_public_callback_url",
+    config?.teslaPublicCallbackUrl ?? null,
+    "Dedicated public Tesla callback URL configured.",
+  );
 
   const externalBaseUrl = config?.externalBaseUrl ?? null;
   const nabuCasaUrl = config?.nabuCasaUrl ?? null;
@@ -1646,52 +1684,76 @@ function createTeslaCallbackCandidates(request: IncomingMessage, config: AppConf
     : [];
   addCandidate(
     "external_base_url",
-    applyIngressPath(externalBaseUrl, request),
-    "Manual external_base_url configured.",
-    externalBaseWarnings,
+    callbackFromBaseUrl(applyIngressPath(externalBaseUrl, request)),
+    "Manual external_base_url configured for UI/diagnostics only; it is not used for Tesla OAuth callbacks.",
+    ["Ingress callbacks are not supported for Tesla OAuth.", ...externalBaseWarnings],
   );
   if (externalBaseUrl === null && nabuCasaUrl !== null) {
     addCandidate(
       "nabu_casa_url",
-      applyIngressPath(nabuCasaUrl, request),
-      "Deprecated nabu_casa_url configured.",
-      ["nabu_casa_url is deprecated. Use external_base_url instead."],
+      callbackFromBaseUrl(applyIngressPath(nabuCasaUrl, request)),
+      "Deprecated nabu_casa_url configured for UI/diagnostics only.",
+      ["nabu_casa_url is deprecated. Use external_base_url instead.", "Ingress callbacks are not supported for Tesla OAuth."],
     );
   }
 
   const externalUrl = config?.homeAssistantExternalUrl ?? null;
   if (isNabuCasaUrl(externalUrl)) {
-    addCandidate("home_assistant_external_url", externalUrl, "Home Assistant external URL is a Nabu Casa URL.");
+    addCandidate("home_assistant_external_url", callbackFromBaseUrl(externalUrl), "Home Assistant external URL is a Nabu Casa URL. It is diagnostic only for Tesla OAuth.");
   } else {
-    addCandidate("home_assistant_external_url", externalUrl, "Home Assistant external URL configured.");
+    addCandidate("home_assistant_external_url", callbackFromBaseUrl(externalUrl), "Home Assistant external URL configured. It is diagnostic only for Tesla OAuth.");
   }
 
-  addCandidate("ingress_https_url", detectIngressBaseUrl(request, true), "HTTPS Home Assistant ingress URL detected from request headers.");
-  addCandidate("local_fallback", detectLocalFallbackBaseUrl(request), "Local fallback from current request. Use only for development.");
+  addCandidate("ingress_https_url", callbackFromBaseUrl(detectIngressBaseUrl(request, true)), "HTTPS Home Assistant ingress URL detected from request headers. It is not usable as a Tesla OAuth callback.");
+  if (process.env.NODE_ENV === "development") {
+    addCandidate("development_local_callback", "http://localhost:3000/api/auth/tesla/callback", "Local development callback. Use only with NODE_ENV=development.");
+  }
   return candidates;
 }
 
 function createTeslaCallbackCandidate(
   source: TeslaCallbackCandidate["source"],
-  baseUrl: string,
+  callbackUrl: string,
   reason: string,
   extraWarnings: string[] = [],
 ): TeslaCallbackCandidate {
-  const url = new URL(baseUrl);
+  const url = new URL(callbackUrl);
   const urlWarnings = createCallbackWarnings(url);
   const warnings = [...extraWarnings, ...urlWarnings];
   return {
     source,
-    baseUrl,
-    callbackUrl: `${baseUrl}/api/auth/tesla/callback`,
+    baseUrl: `${url.origin}${url.pathname.replace(/\/api\/auth\/tesla\/callback\/?$/, "")}`.replace(/\/+$/, ""),
+    callbackUrl,
     reason,
     https: url.protocol === "https:",
     publiclyReachable: url.protocol === "https:" && urlWarnings.length === 0,
     ingressDetected: url.pathname.includes("/api/hassio_ingress/"),
-    nabuCasaDetected: isNabuCasaUrl(baseUrl),
+    nabuCasaDetected: isNabuCasaUrl(callbackUrl),
     warnings,
     selected: false,
   };
+}
+
+function callbackFromBaseUrl(baseUrl: string | null): string | null {
+  const normalized = normalizeBaseUrl(baseUrl);
+  return normalized === null ? null : `${normalized}/api/auth/tesla/callback`;
+}
+
+function normalizeCallbackUrl(value: string | null | undefined): string | null {
+  if (value === null || value === undefined || value.trim() === "") {
+    return null;
+  }
+
+  try {
+    const url = new URL(value.trim());
+    url.username = "";
+    url.password = "";
+    url.search = "";
+    url.hash = "";
+    return `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
+  } catch {
+    return null;
+  }
 }
 
 function detectIngressBaseUrl(request: IncomingMessage, httpsOnly: boolean): string | null {
@@ -1796,6 +1858,7 @@ function createCallbackWarnings(url: URL): string[] {
     isLocalHost(url.hostname) ? "Callback URL uses localhost." : null,
     isPrivateIp(url.hostname) ? "Callback URL uses a local/private IP address." : null,
     url.hostname.endsWith(".local") ? "Callback URL uses a .local hostname." : null,
+    url.pathname.includes("/api/hassio_ingress/") ? "Callback URL contains /api/hassio_ingress and will fail because Tesla returns without Home Assistant session headers." : null,
   ].filter((warning): warning is string => warning !== null);
 }
 
@@ -1923,6 +1986,8 @@ function writeTeslaStartDebugHtml(
       <dt>OAuth configured</dt><dd>${diagnostics.configured ? "yes" : "no"}</dd>
       <dt>Client ID configured</dt><dd>${diagnostics.clientIdConfigured ? "yes" : "no"}</dd>
       <dt>Client secret configured</dt><dd>${diagnostics.clientSecretConfigured ? "yes" : "no"}</dd>
+      <dt>Public callback URL configured</dt><dd>${callbackInfo.publicCallbackConfigured ? "yes" : "no"}</dd>
+      <dt>Ingress callback supported</dt><dd>${callbackInfo.ingressCallbackSupported ? "yes" : "no"}</dd>
       <dt>external_base_url configured</dt><dd>${callbackInfo.candidates.some((candidate) => candidate.source === "external_base_url") ? "yes" : "no"}</dd>
       <dt>External URL field used</dt><dd>${escapeHtml(callbackSourceLabel(callbackInfo.candidates.find((candidate) => candidate.selected)?.source ?? null))}</dd>
       <dt>Selected callback URL</dt><dd>${escapeHtml(callbackInfo.callbackUrl ?? "No HTTPS callback URL selected")}</dd>
@@ -1939,6 +2004,9 @@ function writeTeslaStartDebugHtml(
       <dt>State generated</dt><dd>${authStart.stateGenerated ? "yes" : "no"}</dd>
       <dt>Authorization URL valid</dt><dd>${validation.valid ? "yes" : "no"}</dd>
     </dl>
+    <h2>Important callback note</h2>
+    <p>Tesla callbacks cannot use Home Assistant Ingress because Tesla returns without HA session headers.</p>
+    <p>Use a public callback URL instead, for example through a reverse proxy or cloud relay. Set <code>tesla_public_callback_url</code> to the exact callback URL registered in Tesla Developer Console.</p>
     <h2>Missing config</h2>
     <ul>${missing}</ul>
     <h2>Callback warnings</h2>
@@ -2039,16 +2107,18 @@ function renderTeslaAuthorizationVariant(variant: TeslaAuthorizationUrlVariant):
 
 function callbackSourceLabel(source: TeslaCallbackCandidate["source"] | null): string {
   switch (source) {
+    case "tesla_public_callback_url":
+      return "tesla_public_callback_url";
     case "external_base_url":
-      return "external_base_url";
+      return "external_base_url (diagnostics only)";
     case "nabu_casa_url":
       return "nabu_casa_url (deprecated fallback)";
     case "home_assistant_external_url":
       return "Home Assistant external URL";
     case "ingress_https_url":
-      return "HTTPS ingress URL";
-    case "local_fallback":
-      return "Local fallback";
+      return "HTTPS ingress URL (not supported for callbacks)";
+    case "development_local_callback":
+      return "Local development callback";
     case null:
       return "None";
   }

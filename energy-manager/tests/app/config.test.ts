@@ -99,10 +99,12 @@ describe("loadConfig", () => {
     const config = loadConfig({
       TESLA_CLIENT_ID: " client-id ",
       TESLA_CLIENT_SECRET: " secret ",
+      TESLA_PUBLIC_CALLBACK_URL: " https://energy-manager.example.com/api/auth/tesla/callback ",
     });
 
     expect(config.teslaOAuthClientId).toBe("client-id");
     expect(config.teslaOAuthClientSecret).toBe("secret");
+    expect(config.teslaPublicCallbackUrl).toBe("https://energy-manager.example.com/api/auth/tesla/callback");
   });
 
   it("does not use legacy Tesla OAuth environment aliases", () => {

@@ -60,9 +60,12 @@ describe("ProviderAuthService", () => {
     const status = service.getConnectionStatus("tesla");
 
     expect(result.authorizationUrl).toBeNull();
-    expect(result.message).toBe("Missing Tesla Client ID");
+    expect(result.message).toBe("Missing Tesla Client ID. Tesla OAuth requires a public callback URL, for example through Nabu Casa ingress alternative, reverse proxy, or cloud relay.");
     expect(status.oauthConfigured).toBe(false);
-    expect(status.setupMessages).toEqual(["Missing Tesla Client ID"]);
+    expect(status.setupMessages).toEqual([
+      "Missing Tesla Client ID",
+      "Tesla OAuth requires a public callback URL, for example through Nabu Casa ingress alternative, reverse proxy, or cloud relay.",
+    ]);
   });
 
   it("persists Tesla OAuth tokens server-side across restart", async () => {

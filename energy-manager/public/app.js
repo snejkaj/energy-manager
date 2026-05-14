@@ -343,6 +343,18 @@ try {
     document.getElementById(provider + "-summary").textContent = connection.connected
       ? connection.summary || "Connected"
       : connection.setupMessages?.join(". ") || connection.warning || "Not connected";
+    if (provider === "tesla") {
+      const connectButton = document.getElementById("connect-tesla");
+      const requiresPublicCallback = connection.setupMessages?.some((message) =>
+        message.includes("public callback URL"),
+      );
+      if (connectButton) {
+        connectButton.disabled = Boolean(requiresPublicCallback);
+        connectButton.title = requiresPublicCallback
+          ? "Tesla OAuth requires a public callback URL before sign in can start."
+          : "";
+      }
+    }
   }
 
   function startProviderAuth(provider) {

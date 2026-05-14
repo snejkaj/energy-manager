@@ -157,7 +157,7 @@ Initial Home Assistant options include:
 - Tesla vehicle ID
 - Tesla region, defaulting to `eu`
 - Tibber OAuth client ID, secret, and redirect URI
-- Tesla OAuth client ID and secret
+- Tesla OAuth client ID, secret, and public callback URL
 - optional token encryption key
 - PostgreSQL database URL
 - departure time
@@ -189,6 +189,7 @@ tesla_vehicle_id: ""
 tesla_region: "eu"
 tesla_client_id: ""
 tesla_client_secret: ""
+tesla_public_callback_url: ""
 external_base_url: ""
 home_assistant_external_url: ""
 tibber_oauth_client_id: ""
@@ -206,7 +207,7 @@ charging_efficiency: "0.9"
 
 When `TIBBER_ACCESS_TOKEN` is set, the app uses Tibber as the default electricity price provider and fetches today/tomorrow prices with a personal access token. Without the token, electricity and telemetry default to mock providers for local development. Charger control defaults to planning-only mode.
 
-Tesla can be connected from the UI with the `Connect Tesla` button after `tesla_client_id` and `tesla_client_secret` are configured. Tokens are stored server-side only after OAuth login. The add-on generates its own direct callback URL and shows the exact value on the Tesla OAuth debug page. The app uses Tesla Fleet API in read-only mode to fetch battery state, plugged-in state, charging state, range, vehicle name, and online/asleep/offline state. It does not wake the vehicle and does not send vehicle commands. `tesla_region` defaults to `eu`; set it to `us` only for North America.
+Tesla can be connected from the UI with the `Connect Tesla` button after `tesla_client_id`, `tesla_client_secret`, and `tesla_public_callback_url` are configured. Tokens are stored server-side only after OAuth login. The app uses Tesla Fleet API in read-only mode to fetch battery state, plugged-in state, charging state, range, vehicle name, and online/asleep/offline state. It does not wake the vehicle and does not send vehicle commands. `tesla_region` defaults to `eu`; set it to `us` only for North America.
 
 Most users do not need `tibber_home_id`.
 
@@ -433,32 +434,25 @@ The app requests Tesla Fleet OAuth scopes `openid offline_access vehicle_device_
 
 Do not use `https://my.home-assistant.io/redirect/oauth` for this add-on.
 
-For a Home Assistant add-on, open **Open Tesla OAuth debug** in the add-on UI and copy the exact callback URL shown there into Tesla Developer Console. It will look like this:
+Do not use a Home Assistant Ingress URL as the Tesla callback. Tesla redirects the browser back without Home Assistant session headers, so URLs containing `/api/hassio_ingress/` can return `401` before the add-on sees the callback.
+
+Use a public callback URL that reaches the add-on backend directly, for example through a reverse proxy or cloud relay:
 
 ```text
-https://xxxxx.ui.nabu.casa/api/hassio_ingress/abcdef/api/auth/tesla/callback
+https://energy-manager.example.com/api/auth/tesla/callback
 ```
 
-Tesla OAuth uses an HTTPS callback by default. The add-on chooses callback URLs in this order:
-
-1. Manual `external_base_url`
-2. Home Assistant external URL
-3. HTTPS ingress URL
-4. Local fallback only for development
-
-If the debug page shows `http://`, `localhost`, a local IP address, or `.local`, fix the external Home Assistant URL before connecting Tesla. Local HTTP callbacks are rejected unless `tesla_allow_insecure_callback` is explicitly enabled for development.
-
-If auto-detection only finds your local Home Assistant URL, set:
+Set the exact same value in Home Assistant add-on configuration and in Tesla Developer Console:
 
 ```yaml
-external_base_url: "https://pq2du9jfg8bxdwdpr3nrvsad6e4vc5nr.ui.nabu.casa"
+tesla_public_callback_url: "https://energy-manager.example.com/api/auth/tesla/callback"
 ```
 
-If the add-on is opened through ingress, Energy Manager appends the current ingress path automatically and generates:
+Open **Open Tesla OAuth debug** in the add-on UI to confirm the selected redirect URI. The authorization URL must not contain `/api/hassio_ingress/`.
 
-```text
-https://pq2du9jfg8bxdwdpr3nrvsad6e4vc5nr.ui.nabu.casa/api/hassio_ingress/<ingress-id>/api/auth/tesla/callback
-```
+`external_base_url` remains useful for UI and diagnostics, but it is not used as the Tesla OAuth callback.
+
+For local development only, `http://localhost:3000/api/auth/tesla/callback` may be used when `NODE_ENV=development` and `tesla_allow_insecure_callback` is enabled.
 
 ## Requirements
 

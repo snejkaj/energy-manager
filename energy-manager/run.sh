@@ -79,6 +79,7 @@ if [ -f "$CONFIG_PATH" ] && command -v jq >/dev/null 2>&1; then
   TESLA_CLIENT_SECRET="$(jq -r '.tesla_client_secret // empty' /data/options.json)"
   TESLA_REGION="$(jq -r '.tesla_region // "eu"' /data/options.json)"
   TESLA_VEHICLE_ID="$(jq -r '.tesla_vehicle_id // empty' /data/options.json)"
+  TESLA_PUBLIC_CALLBACK_URL="$(jq -r '.tesla_public_callback_url // empty' /data/options.json)"
   EXTERNAL_BASE_URL="$(jq -r '.external_base_url // empty' /data/options.json)"
   NABU_CASA_URL="$(jq -r '.nabu_casa_url // empty' /data/options.json)"
   HOME_ASSISTANT_EXTERNAL_URL="$(jq -r '.home_assistant_external_url // empty' /data/options.json)"
@@ -90,6 +91,7 @@ else
   TESLA_CLIENT_SECRET="$(config_value 'tesla_client_secret')"
   TESLA_REGION="$(config_value 'tesla_region')"
   TESLA_VEHICLE_ID="$(config_value 'tesla_vehicle_id')"
+  TESLA_PUBLIC_CALLBACK_URL="$(config_value 'tesla_public_callback_url')"
   EXTERNAL_BASE_URL="$(config_value 'external_base_url')"
   NABU_CASA_URL="$(config_value 'nabu_casa_url')"
   HOME_ASSISTANT_EXTERNAL_URL="$(config_value 'home_assistant_external_url')"
@@ -101,6 +103,7 @@ export TESLA_CLIENT_ID
 export TESLA_CLIENT_SECRET
 export TESLA_REGION
 export TESLA_VEHICLE_ID
+export TESLA_PUBLIC_CALLBACK_URL
 export EXTERNAL_BASE_URL
 export NABU_CASA_URL
 export HOME_ASSISTANT_EXTERNAL_URL
@@ -134,7 +137,8 @@ log_info "[TibberConfig] TIBBER_ACCESS_TOKEN configured: $([ -n "$TIBBER_ACCESS_
 log_info "[TibberConfig] TIBBER_HOME_ID configured: $([ -n "$TIBBER_HOME_ID" ] && echo yes || echo no)"
 log_info "[TeslaConfig] client_id configured $([ -n "$TESLA_CLIENT_ID" ] && echo yes || echo no) length ${#TESLA_CLIENT_ID}"
 log_info "[TeslaConfig] client_secret configured $([ -n "$TESLA_CLIENT_SECRET" ] && echo yes || echo no) length ${#TESLA_CLIENT_SECRET}"
-log_info "[TeslaConfig] redirect_uri generated automatically from add-on ingress URL"
+log_info "[TeslaConfig] public callback URL configured: $([ -n "$TESLA_PUBLIC_CALLBACK_URL" ] && echo yes || echo no)"
+log_info "[TeslaConfig] public callback URL preview: $(mask_url_preview "$TESLA_PUBLIC_CALLBACK_URL")"
 log_info "[TeslaConfig] region ${TESLA_REGION:-eu}"
 log_info "[TeslaConfig] external_base_url configured: $([ -n "$EXTERNAL_BASE_URL" ] && echo yes || echo no)"
 log_info "[TeslaConfig] external_base_url preview: $(mask_url_preview "$EXTERNAL_BASE_URL")"

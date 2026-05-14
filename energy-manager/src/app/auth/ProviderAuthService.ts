@@ -473,10 +473,14 @@ function getMissingOAuthConfig(config: AppConfig, provider: AuthProviderId, redi
     ].filter((message): message is string => message !== null);
   }
 
+  const hasTeslaRedirectUri = redirectUriOverride === undefined
+    ? config.teslaPublicCallbackUrl !== null
+    : redirectUriOverride !== null;
+
   return [
     config.teslaOAuthClientId === null ? "Missing Tesla Client ID" : null,
     config.teslaOAuthClientSecret === null ? "Missing Tesla Client Secret" : null,
-    redirectUriOverride === null ? "Tesla callback URL must be HTTPS and public. Open Tesla OAuth debug for details." : null,
+    hasTeslaRedirectUri ? null : "Tesla OAuth requires a public callback URL, for example through Nabu Casa ingress alternative, reverse proxy, or cloud relay.",
   ].filter((message): message is string => message !== null);
 }
 
