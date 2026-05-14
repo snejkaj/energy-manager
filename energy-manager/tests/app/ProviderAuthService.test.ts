@@ -106,11 +106,11 @@ describe("ProviderAuthService", () => {
     const state = new URL(start.authorizationUrl ?? "").searchParams.get("state");
 
     await expect(service.handleCallback("tesla", "authorization-code-secret", state ?? "")).rejects.toThrow(
-      "Tesla rejected the token exchange. Check client secret and exact redirect URI.",
+      "Tesla rejected token exchange. Check client secret and exact redirect URI.",
     );
     const lastError = getTeslaOAuthFleetLastError();
 
-    expect(lastError.lastStep).toBe("token_exchange");
+    expect(lastError.lastStep).toBe("token_exchange_failed");
     expect(lastError.httpStatus).toBe(401);
     expect(JSON.stringify(lastError)).not.toContain("authorization-code-secret");
     expect(JSON.stringify(lastError)).not.toContain("secret-client-value");

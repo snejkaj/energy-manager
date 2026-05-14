@@ -17,7 +17,7 @@ import { MockElectricityPriceProvider } from "../providers/mock/MockElectricityP
 import { ProviderRegistry } from "../providers/ProviderRegistry.js";
 import { OpenMeteoWeatherProvider } from "../providers/openMeteo/OpenMeteoWeatherProvider.js";
 import { TeslaClient } from "../providers/tesla/TeslaClient.js";
-import { getTeslaOAuthFleetLastError } from "../providers/tesla/TeslaDiagnostics.js";
+import { getTeslaOAuthFleetLastError, recordTeslaOAuthEvent } from "../providers/tesla/TeslaDiagnostics.js";
 import { TeslaVehicleStateProvider } from "../providers/tesla/TeslaProvider.js";
 import { TibberGraphQLClient } from "../providers/tibber/TibberClient.js";
 import { TibberHomeTelemetryProvider, TibberPriceProvider } from "../providers/tibber/TibberProvider.js";
@@ -267,7 +267,15 @@ export function startServer(): void {
     }
 
     if (request.method === "GET" && path === "/debug/tesla/oauth-last-error") {
-      writeJson(response, 200, getTeslaOAuthFleetLastError());
+      writeJson(response, 200, {
+        ...getTeslaOAuthFleetLastError(),
+        oauthStatus: createTeslaOAuthStatus(),
+      });
+      return;
+    }
+
+    if (request.method === "GET" && path === "/debug/tesla/oauth-status") {
+      writeJson(response, 200, createTeslaOAuthStatus());
       return;
     }
 
@@ -320,6 +328,13 @@ export function startServer(): void {
 
     if (request.method === "GET" && (path === "/api/auth/tibber/callback" || path === "/api/auth/tesla/callback")) {
       logger.info("Auth", `${labelProvider(getProviderFromPath(path))} callback hit=yes`);
+      if (path === "/api/auth/tesla/callback") {
+        recordTeslaOAuthEvent({
+          step: "callback_received",
+          redirectUriUsed: createTeslaCallbackInfo(request, config).callbackUrl,
+          region: config.teslaRegion,
+        });
+      }
       if (path === "/api/auth/tesla/callback") {
         lastTeslaCallbackResult = {
           callbackHit: true,
@@ -1263,6 +1278,22 @@ function formatTeslaLastErrorSummary(): string {
     `status=${lastError.httpStatus ?? "unknown"}`,
     `error=${lastError.safeError ?? "none"}`,
   ].join(", ");
+}
+
+function createTeslaOAuthStatus() {
+  const status = getTeslaOAuthFleetLastError();
+  return {
+    lastStep: status.lastStep,
+    lastHttpStatus: status.httpStatus,
+    lastSafeError: status.safeError,
+    redirectUriUsed: status.redirectUriUsed,
+    tokenEndpoint: status.tokenEndpoint,
+    fleetApiBaseUrl: status.fleetApiBaseUrl,
+    scopesRequested: status.scopesRequested,
+    tokenExchangeSucceeded: status.tokenExchangeSuccess,
+    vehiclesFetchSucceeded: status.vehiclesFetchSuccess,
+    vehicleDataFetchSucceeded: status.vehicleDataFetchSuccess,
+  };
 }
 
 interface SupportEvent {

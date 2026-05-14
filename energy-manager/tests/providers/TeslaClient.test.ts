@@ -22,10 +22,28 @@ describe("TeslaFleetApiClient", () => {
     await expect(client.get("/vehicles")).rejects.toThrow(TeslaApiError);
     const lastError = getTeslaOAuthFleetLastError();
 
-    expect(lastError.lastStep).toBe("vehicles_fetch");
+    expect(lastError.lastStep).toBe("vehicles_fetch_failed");
     expect(lastError.httpStatus).toBe(401);
-    expect(lastError.safeError).toBe("Tesla token was created, but Fleet API rejected it. Check API scopes and region.");
+    expect(lastError.safeError).toBe("Tesla token was created, but Fleet API rejected it. Check scopes/API permissions/audience/region.");
     expect(JSON.stringify(lastError)).not.toContain("secret-access-token");
     expect(lastError.fleetApiBaseUrl).toBe("https://fleet-api.prd.eu.vn.cloud.tesla.com/api/1");
+  });
+
+  it("records 401 diagnostics for vehicle data permission failures", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      text: async () => JSON.stringify({ error: "unauthorized", error_description: "missing vehicle data scope" }),
+    }));
+
+    const client = new TeslaFleetApiClient("secret-access-token", "eu");
+
+    await expect(client.get("/vehicles/vehicle-1/vehicle_data")).rejects.toThrow(TeslaApiError);
+    const lastError = getTeslaOAuthFleetLastError();
+
+    expect(lastError.lastStep).toBe("vehicle_data_fetch_failed");
+    expect(lastError.httpStatus).toBe(401);
+    expect(lastError.safeError).toBe("Vehicle data permission denied. Check Fordonsinformation scope.");
+    expect(JSON.stringify(lastError)).not.toContain("secret-access-token");
   });
 });

@@ -3,7 +3,20 @@
 import { logger } from "../../app/logger.js";
 import type { TeslaRegion } from "./TeslaClient.js";
 
-export type TeslaDiagnosticStep = "token_exchange" | "vehicles_fetch" | "vehicle_data_fetch";
+export type TeslaDiagnosticOperation = "token_exchange" | "vehicles_fetch" | "vehicle_data_fetch";
+export type TeslaDiagnosticStep =
+  | "start_auth"
+  | "callback_received"
+  | "state_validated"
+  | "token_exchange_started"
+  | "token_exchange_failed"
+  | "token_exchange_succeeded"
+  | "vehicles_fetch_started"
+  | "vehicles_fetch_failed"
+  | "vehicles_fetch_succeeded"
+  | "vehicle_data_fetch_started"
+  | "vehicle_data_fetch_failed"
+  | "vehicle_data_fetch_succeeded";
 
 export interface TeslaOAuthFleetLastError {
   lastStep: TeslaDiagnosticStep | null;
@@ -40,29 +53,43 @@ let lastError: TeslaOAuthFleetLastError = { ...defaultState };
 export function resetTeslaOAuthFleetDiagnostics(region: TeslaRegion, redirectUriUsed: string | null, scopesRequested: string[]): void {
   lastError = {
     ...defaultState,
+    lastStep: "start_auth",
     redirectUriUsed,
     fleetApiBaseUrl: fleetApiBaseUrl(region),
     scopesRequested,
     region,
+    recordedAt: new Date().toISOString(),
   };
+  logger.info("TeslaDiag", `step=start_auth redirect_uri=${redirectUriUsed ?? "not configured"} scopes=${scopesRequested.join(" ")} region=${region}`);
 }
 
 export function recordTeslaStepStart(input: {
-  step: TeslaDiagnosticStep;
+  step: TeslaDiagnosticOperation;
   endpoint: string;
   redirectUriUsed?: string | null;
   scopesRequested?: string[];
   region: TeslaRegion;
 }): void {
   const url = new URL(input.endpoint);
+  const step = `${input.step}_started` as TeslaDiagnosticStep;
   logger.info(
     "TeslaDiag",
-    `step=${input.step} start endpoint=${url.host}${url.pathname} redirect_uri=${input.redirectUriUsed ?? lastError.redirectUriUsed ?? "not applicable"} scopes=${(input.scopesRequested ?? lastError.scopesRequested).join(" ")} region=${input.region}`,
+    `step=${step} endpoint=${url.host}${url.pathname} redirect_uri=${input.redirectUriUsed ?? lastError.redirectUriUsed ?? "not applicable"} scopes=${(input.scopesRequested ?? lastError.scopesRequested).join(" ")} region=${input.region}`,
   );
+  lastError = {
+    ...lastError,
+    lastStep: step,
+    redirectUriUsed: input.redirectUriUsed ?? lastError.redirectUriUsed,
+    tokenEndpoint: defaultState.tokenEndpoint,
+    fleetApiBaseUrl: fleetApiBaseUrl(input.region),
+    scopesRequested: input.scopesRequested ?? lastError.scopesRequested,
+    region: input.region,
+    recordedAt: new Date().toISOString(),
+  };
 }
 
 export function recordTeslaStepResult(input: {
-  step: TeslaDiagnosticStep;
+  step: TeslaDiagnosticOperation;
   httpStatus: number;
   endpoint: string;
   ok: boolean;
@@ -73,13 +100,14 @@ export function recordTeslaStepResult(input: {
 }): void {
   const url = new URL(input.endpoint);
   const safeError = input.safeError === null ? null : sanitizeTeslaError(input.safeError);
+  const step = `${input.step}_${input.ok ? "succeeded" : "failed"}` as TeslaDiagnosticStep;
   logger.info(
     "TeslaDiag",
-    `step=${input.step} status=${input.httpStatus} endpoint=${url.host}${url.pathname} region=${input.region} error=${safeError ?? "none"}`,
+    `step=${step} status=${input.httpStatus} endpoint=${url.host}${url.pathname} region=${input.region} error=${safeError ?? "none"}`,
   );
   lastError = {
     ...lastError,
-    lastStep: input.step,
+    lastStep: step,
     httpStatus: input.httpStatus,
     safeError,
     redirectUriUsed: input.redirectUriUsed ?? lastError.redirectUriUsed,
@@ -89,6 +117,27 @@ export function recordTeslaStepResult(input: {
     tokenExchangeSuccess: input.step === "token_exchange" ? input.ok : lastError.tokenExchangeSuccess,
     vehiclesFetchSuccess: input.step === "vehicles_fetch" ? input.ok : lastError.vehiclesFetchSuccess,
     vehicleDataFetchSuccess: input.step === "vehicle_data_fetch" ? input.ok : lastError.vehicleDataFetchSuccess,
+    region: input.region,
+    recordedAt: new Date().toISOString(),
+  };
+}
+
+export function recordTeslaOAuthEvent(input: {
+  step: "callback_received" | "state_validated";
+  redirectUriUsed?: string | null;
+  region: TeslaRegion;
+  scopesRequested?: string[];
+}): void {
+  logger.info(
+    "TeslaDiag",
+    `step=${input.step} redirect_uri=${input.redirectUriUsed ?? lastError.redirectUriUsed ?? "not applicable"} scopes=${(input.scopesRequested ?? lastError.scopesRequested).join(" ")} region=${input.region}`,
+  );
+  lastError = {
+    ...lastError,
+    lastStep: input.step,
+    redirectUriUsed: input.redirectUriUsed ?? lastError.redirectUriUsed,
+    fleetApiBaseUrl: fleetApiBaseUrl(input.region),
+    scopesRequested: input.scopesRequested ?? lastError.scopesRequested,
     region: input.region,
     recordedAt: new Date().toISOString(),
   };

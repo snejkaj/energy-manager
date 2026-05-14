@@ -1,7 +1,7 @@
 // Requirements: TES-001, TES-002, TES-003, TES-004, TES-006, PRV-004, ARC-006
 
 import { logger } from "../../app/logger.js";
-import { fleetApiBaseUrl, recordTeslaStepResult, recordTeslaStepStart, sanitizeTeslaError, type TeslaDiagnosticStep } from "./TeslaDiagnostics.js";
+import { fleetApiBaseUrl, recordTeslaStepResult, recordTeslaStepStart, sanitizeTeslaError, type TeslaDiagnosticOperation } from "./TeslaDiagnostics.js";
 
 export interface TeslaTransport {
   get<TData>(path: string): Promise<TData>;
@@ -80,24 +80,24 @@ export class TeslaApiError extends Error {
   constructor(
     message: string,
     public readonly httpStatus: number | null = null,
-    public readonly step: TeslaDiagnosticStep | null = null,
+    public readonly step: TeslaDiagnosticOperation | null = null,
   ) {
     super(message);
     this.name = "TeslaApiError";
   }
 }
 
-function teslaStepFromPath(path: string): TeslaDiagnosticStep {
+function teslaStepFromPath(path: string): TeslaDiagnosticOperation {
   return path.includes("/vehicle_data") ? "vehicle_data_fetch" : "vehicles_fetch";
 }
 
-function createFleetApiSafeError(step: TeslaDiagnosticStep, status: number, responseText: string): string {
+function createFleetApiSafeError(step: TeslaDiagnosticOperation, status: number, responseText: string): string {
   if (status === 401 && step === "vehicles_fetch") {
-    return "Tesla token was created, but Fleet API rejected it. Check API scopes and region.";
+    return "Tesla token was created, but Fleet API rejected it. Check scopes/API permissions/audience/region.";
   }
 
   if (status === 401 && step === "vehicle_data_fetch") {
-    return "Tesla token was accepted for vehicles, but vehicle data was rejected. Check Fleet API access for this vehicle.";
+    return "Vehicle data permission denied. Check Fordonsinformation scope.";
   }
 
   return `Tesla request failed with HTTP ${status}: ${sanitizeTeslaError(responseText)}`;

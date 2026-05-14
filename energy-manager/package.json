@@ -1,6 +1,6 @@
 {
   "name": "energy-manager",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "private": true,
   "description": "Smart EV charging optimization for Home Assistant add-on packaging.",
   "type": "module",

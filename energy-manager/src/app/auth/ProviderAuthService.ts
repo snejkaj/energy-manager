@@ -7,6 +7,7 @@ import { dirname, join } from "node:path";
 import type { AppConfig } from "../config.js";
 import { logger } from "../logger.js";
 import {
+  recordTeslaOAuthEvent,
   recordTeslaStepResult,
   recordTeslaStepStart,
   resetTeslaOAuthFleetDiagnostics,
@@ -189,6 +190,14 @@ export class ProviderAuthService {
     const pendingState = this.pendingStates.get(state);
     if (pendingState === undefined || pendingState.provider !== provider) {
       throw new Error("OAuth state did not match. Please start the connection again.");
+    }
+    if (provider === "tesla") {
+      recordTeslaOAuthEvent({
+        step: "state_validated",
+        redirectUriUsed: pendingState.redirectUri,
+        scopesRequested: getOAuthConfig(this.config, provider).scope.split(" "),
+        region: this.config.teslaRegion,
+      });
     }
     this.pendingStates.delete(state);
 
@@ -440,7 +449,7 @@ function createTokenExchangeError(provider: AuthProviderId, status: number, resp
   }
 
   if (status === 401) {
-    return "Tesla rejected the token exchange. Check client secret and exact redirect URI.";
+    return "Tesla rejected token exchange. Check client secret and exact redirect URI.";
   }
 
   const lowerResponse = responseText.toLowerCase();
