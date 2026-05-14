@@ -1904,6 +1904,17 @@ function writeTeslaStartDebugHtml(
     <ul>${callbackWarnings}</ul>
     <h2>Callback candidates</h2>
     <ul>${callbackCandidates || "<li>None</li>"}</ul>
+    <h2>Direct diagnostics</h2>
+    <div class="actions">
+      <a href="../../debug/tesla/oauth-status">Open OAuth status JSON</a>
+      <a href="../../debug/tesla/callback-selection">Open callback diagnostics</a>
+      <a href="../../debug/config">Open config diagnostics</a>
+    </div>
+    <dl>
+      <dt>OAuth status path</dt><dd>/debug/tesla/oauth-status</dd>
+      <dt>Callback diagnostics path</dt><dd>/debug/tesla/callback-selection</dd>
+      <dt>Config diagnostics path</dt><dd>/debug/config</dd>
+    </dl>
     <label for="tesla-callback-url">Copy this redirect URI into Tesla Developer Console</label>
     <textarea id="tesla-callback-url" rows="3" readonly>${escapeHtml(callbackInfo.callbackUrl ?? "")}</textarea>
     <p><button type="button" data-copy-target="tesla-callback-url">Copy redirect URI</button></p>
