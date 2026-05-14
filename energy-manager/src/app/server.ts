@@ -356,7 +356,7 @@ export function startServer(): void {
           `Error code: ${oauthError}`,
           `Description: ${message}`,
           `Redirect URI used: ${createTeslaCallbackInfo(request, config).callbackUrl ?? "not available"}`,
-        ], createBackHref(path));
+        ], createBackHref(path), createTeslaDebugHref(path));
         lastTeslaCallbackResult = {
           callbackHit: true,
           tokenExchangeSuccess: false,
@@ -374,7 +374,7 @@ export function startServer(): void {
         writeAuthResultHtml(response, 400, "Tesla connection failed", [
           "Missing OAuth code or state.",
           `Redirect URI used: ${createTeslaCallbackInfo(request, config).callbackUrl ?? "not available"}`,
-        ], createBackHref(path));
+        ], createBackHref(path), createTeslaDebugHref(path));
         lastTeslaCallbackResult = {
           callbackHit: true,
           tokenExchangeSuccess: false,
@@ -410,7 +410,7 @@ export function startServer(): void {
             ...(vehicleFetchError === null ? [] : [`Tesla API error: ${vehicleFetchError}`]),
             ...(provider === "tesla" ? [`Last Tesla OAuth/Fleet step: ${formatTeslaLastErrorSummary()}`] : []),
             "Return to the add-on to see the latest status.",
-          ], createBackHref(path));
+          ], createBackHref(path), provider === "tesla" ? createTeslaDebugHref(path) : null);
         })
         .catch((error: unknown) => {
           lastOAuthError = createSupportEvent(errorMessage(error));
@@ -427,7 +427,7 @@ export function startServer(): void {
             `Error: ${error instanceof Error ? error.message : "Connection failed."}`,
             `Redirect URI used: ${provider === "tesla" ? createTeslaCallbackInfo(request, config).callbackUrl ?? "not available" : config.tibberOAuthRedirectUri ?? "not configured"}`,
             ...(provider === "tesla" ? [`Last Tesla OAuth/Fleet step: ${formatTeslaLastErrorSummary()}`] : []),
-          ], createBackHref(path));
+          ], createBackHref(path), provider === "tesla" ? createTeslaDebugHref(path) : null);
         });
       return;
     }
@@ -1105,9 +1105,29 @@ function createChargingTarget(config: AppConfig): ChargingTarget {
 }
 
 function writeJson(response: ServerResponse, statusCode: number, body: unknown): void {
+  if (statusCode === 401) {
+    writeDebugIngress401Html(response);
+    return;
+  }
   response.statusCode = statusCode;
   response.setHeader("content-type", "application/json");
   response.end(JSON.stringify(body));
+}
+
+function writeDebugIngress401Html(response: ServerResponse): void {
+  response.statusCode = 401;
+  response.setHeader("content-type", "text/html; charset=utf-8");
+  response.end(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Debug endpoint unavailable</title>
+  </head>
+  <body>
+    <p>Debug endpoint is only available through Home Assistant Ingress. Open Tesla OAuth debug from the add-on UI.</p>
+  </body>
+</html>`);
 }
 
 function writeText(response: ServerResponse, statusCode: number, body: string): void {
@@ -1293,6 +1313,9 @@ function createTeslaOAuthStatus() {
     tokenExchangeSucceeded: status.tokenExchangeSuccess,
     vehiclesFetchSucceeded: status.vehiclesFetchSuccess,
     vehicleDataFetchSucceeded: status.vehicleDataFetchSuccess,
+    lastCallbackAt: status.lastCallbackAt,
+    lastTokenExchangeAt: status.lastTokenExchangeAt,
+    lastFleetFetchAt: status.lastFleetFetchAt,
   };
 }
 
@@ -1508,6 +1531,7 @@ function writeAuthResultHtml(
   title: string,
   messages: string[],
   backHref: string,
+  teslaDebugHref: string | null = null,
 ): void {
   response.statusCode = statusCode;
   response.setHeader("content-type", "text/html; charset=utf-8");
@@ -1526,6 +1550,7 @@ function writeAuthResultHtml(
   <body>
     <h1>${escapeHtml(title)}</h1>
     <ul>${items}</ul>
+    ${teslaDebugHref === null ? "" : `<p><a href="${escapeHtml(teslaDebugHref)}">Open Tesla OAuth debug</a></p>`}
     <p><a href="${escapeHtml(backHref)}">Back to Energy Manager</a></p>
   </body>
 </html>`);
@@ -1847,6 +1872,22 @@ function writeTeslaStartDebugHtml(
   const variantCards = variants.length === 0
     ? "<p>No variants available because no authorization URL was generated.</p>"
     : variants.map(renderTeslaAuthorizationVariant).join("");
+  const oauthStatus = createTeslaOAuthStatus();
+  const oauthStatusRows = [
+    ["lastStep", oauthStatus.lastStep ?? "none"],
+    ["lastHttpStatus", oauthStatus.lastHttpStatus === null ? "none" : String(oauthStatus.lastHttpStatus)],
+    ["lastSafeError", oauthStatus.lastSafeError ?? "none"],
+    ["redirectUriUsed", oauthStatus.redirectUriUsed ?? "none"],
+    ["tokenEndpoint", oauthStatus.tokenEndpoint],
+    ["fleetApiBaseUrl", oauthStatus.fleetApiBaseUrl],
+    ["scopesRequested", oauthStatus.scopesRequested.join(" ")],
+    ["tokenExchangeSucceeded", formatNullableBoolean(oauthStatus.tokenExchangeSucceeded)],
+    ["vehiclesFetchSucceeded", formatNullableBoolean(oauthStatus.vehiclesFetchSucceeded)],
+    ["vehicleDataFetchSucceeded", formatNullableBoolean(oauthStatus.vehicleDataFetchSucceeded)],
+    ["lastCallbackAt", oauthStatus.lastCallbackAt ?? "none"],
+    ["lastTokenExchangeAt", oauthStatus.lastTokenExchangeAt ?? "none"],
+    ["lastFleetFetchAt", oauthStatus.lastFleetFetchAt ?? "none"],
+  ].map(([key, value]) => `<dt>${escapeHtml(key)}</dt><dd>${escapeHtml(value)}</dd>`).join("");
   const escapedAuthorizationUrl = authStart.authorizationUrl === null ? "" : escapeHtml(authStart.authorizationUrl);
   const authUrlControls = authStart.authorizationUrl === null
     ? "<p>No authorization URL generated.</p>"
@@ -1904,6 +1945,10 @@ function writeTeslaStartDebugHtml(
     <ul>${callbackWarnings}</ul>
     <h2>Callback candidates</h2>
     <ul>${callbackCandidates || "<li>None</li>"}</ul>
+    <h2>Latest OAuth/Fleet status</h2>
+    <p>This is embedded here so normal debugging does not depend on a separate JSON endpoint.</p>
+    <p><button type="button" onclick="window.location.reload()">Refresh diagnostics</button></p>
+    <dl>${oauthStatusRows}</dl>
     <h2>Direct diagnostics</h2>
     <div class="actions">
       <a href="../../debug/tesla/oauth-status">Open OAuth status JSON</a>
@@ -2117,6 +2162,26 @@ function createBackHref(path: string): string {
   }
 
   return "./";
+}
+
+function createTeslaDebugHref(path: string): string {
+  if (path.startsWith("/api/auth/")) {
+    return "../../../auth/tesla/start-debug";
+  }
+
+  if (path.startsWith("/auth/")) {
+    return path.startsWith("/auth/tesla/") ? "./start-debug" : "./tesla/start-debug";
+  }
+
+  return "./auth/tesla/start-debug";
+}
+
+function formatNullableBoolean(value: boolean | null): string {
+  if (value === null) {
+    return "unknown";
+  }
+
+  return value ? "yes" : "no";
 }
 
 function getProviderFromPath(path: string): AuthProviderId {

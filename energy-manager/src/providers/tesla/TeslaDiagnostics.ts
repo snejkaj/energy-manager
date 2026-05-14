@@ -31,6 +31,9 @@ export interface TeslaOAuthFleetLastError {
   vehicleDataFetchSuccess: boolean | null;
   region: TeslaRegion;
   recordedAt: string | null;
+  lastCallbackAt: string | null;
+  lastTokenExchangeAt: string | null;
+  lastFleetFetchAt: string | null;
 }
 
 const defaultState: TeslaOAuthFleetLastError = {
@@ -46,6 +49,9 @@ const defaultState: TeslaOAuthFleetLastError = {
   vehicleDataFetchSuccess: null,
   region: "eu",
   recordedAt: null,
+  lastCallbackAt: null,
+  lastTokenExchangeAt: null,
+  lastFleetFetchAt: null,
 };
 
 let lastError: TeslaOAuthFleetLastError = { ...defaultState };
@@ -72,6 +78,7 @@ export function recordTeslaStepStart(input: {
 }): void {
   const url = new URL(input.endpoint);
   const step = `${input.step}_started` as TeslaDiagnosticStep;
+  const recordedAt = new Date().toISOString();
   logger.info(
     "TeslaDiag",
     `step=${step} endpoint=${url.host}${url.pathname} redirect_uri=${input.redirectUriUsed ?? lastError.redirectUriUsed ?? "not applicable"} scopes=${(input.scopesRequested ?? lastError.scopesRequested).join(" ")} region=${input.region}`,
@@ -84,7 +91,9 @@ export function recordTeslaStepStart(input: {
     fleetApiBaseUrl: fleetApiBaseUrl(input.region),
     scopesRequested: input.scopesRequested ?? lastError.scopesRequested,
     region: input.region,
-    recordedAt: new Date().toISOString(),
+    recordedAt,
+    lastTokenExchangeAt: input.step === "token_exchange" ? recordedAt : lastError.lastTokenExchangeAt,
+    lastFleetFetchAt: input.step === "vehicles_fetch" || input.step === "vehicle_data_fetch" ? recordedAt : lastError.lastFleetFetchAt,
   };
 }
 
@@ -101,6 +110,7 @@ export function recordTeslaStepResult(input: {
   const url = new URL(input.endpoint);
   const safeError = input.safeError === null ? null : sanitizeTeslaError(input.safeError);
   const step = `${input.step}_${input.ok ? "succeeded" : "failed"}` as TeslaDiagnosticStep;
+  const recordedAt = new Date().toISOString();
   logger.info(
     "TeslaDiag",
     `step=${step} status=${input.httpStatus} endpoint=${url.host}${url.pathname} region=${input.region} error=${safeError ?? "none"}`,
@@ -118,7 +128,9 @@ export function recordTeslaStepResult(input: {
     vehiclesFetchSuccess: input.step === "vehicles_fetch" ? input.ok : lastError.vehiclesFetchSuccess,
     vehicleDataFetchSuccess: input.step === "vehicle_data_fetch" ? input.ok : lastError.vehicleDataFetchSuccess,
     region: input.region,
-    recordedAt: new Date().toISOString(),
+    recordedAt,
+    lastTokenExchangeAt: input.step === "token_exchange" ? recordedAt : lastError.lastTokenExchangeAt,
+    lastFleetFetchAt: input.step === "vehicles_fetch" || input.step === "vehicle_data_fetch" ? recordedAt : lastError.lastFleetFetchAt,
   };
 }
 
@@ -128,6 +140,7 @@ export function recordTeslaOAuthEvent(input: {
   region: TeslaRegion;
   scopesRequested?: string[];
 }): void {
+  const recordedAt = new Date().toISOString();
   logger.info(
     "TeslaDiag",
     `step=${input.step} redirect_uri=${input.redirectUriUsed ?? lastError.redirectUriUsed ?? "not applicable"} scopes=${(input.scopesRequested ?? lastError.scopesRequested).join(" ")} region=${input.region}`,
@@ -139,7 +152,8 @@ export function recordTeslaOAuthEvent(input: {
     fleetApiBaseUrl: fleetApiBaseUrl(input.region),
     scopesRequested: input.scopesRequested ?? lastError.scopesRequested,
     region: input.region,
-    recordedAt: new Date().toISOString(),
+    recordedAt,
+    lastCallbackAt: input.step === "callback_received" || input.step === "state_validated" ? recordedAt : lastError.lastCallbackAt,
   };
 }
 
