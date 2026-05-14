@@ -190,7 +190,6 @@ tesla_region: "eu"
 tesla_client_id: ""
 tesla_client_secret: ""
 external_base_url: ""
-home_assistant_nabu_casa_url: ""
 home_assistant_external_url: ""
 tibber_oauth_client_id: ""
 tibber_oauth_client_secret: ""
@@ -443,10 +442,9 @@ https://xxxxx.ui.nabu.casa/api/hassio_ingress/abcdef/api/auth/tesla/callback
 Tesla OAuth uses an HTTPS callback by default. The add-on chooses callback URLs in this order:
 
 1. Manual `external_base_url`
-2. Nabu Casa remote URL
-3. Home Assistant external URL
-4. HTTPS ingress URL
-5. Local fallback only for development
+2. Home Assistant external URL
+3. HTTPS ingress URL
+4. Local fallback only for development
 
 If the debug page shows `http://`, `localhost`, a local IP address, or `.local`, fix the external Home Assistant URL before connecting Tesla. Local HTTP callbacks are rejected unless `tesla_allow_insecure_callback` is explicitly enabled for development.
 

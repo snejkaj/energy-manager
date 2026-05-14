@@ -1484,7 +1484,7 @@ interface TeslaCallbackInfo {
 }
 
 interface TeslaCallbackCandidate {
-  source: "external_base_url" | "nabu_casa_remote_url" | "home_assistant_external_url" | "ingress_https_url" | "local_fallback";
+  source: "external_base_url" | "nabu_casa_url" | "home_assistant_external_url" | "ingress_https_url" | "local_fallback";
   baseUrl: string;
   callbackUrl: string;
   reason: string;
@@ -1540,21 +1540,43 @@ function selectTeslaCallback(
 
 function createTeslaCallbackCandidates(request: IncomingMessage, config: AppConfig | undefined): TeslaCallbackCandidate[] {
   const candidates: TeslaCallbackCandidate[] = [];
-  const addCandidate = (source: TeslaCallbackCandidate["source"], baseUrl: string | null, reason: string): void => {
+  const addCandidate = (
+    source: TeslaCallbackCandidate["source"],
+    baseUrl: string | null,
+    reason: string,
+    extraWarnings: string[] = [],
+  ): void => {
     const normalized = normalizeBaseUrl(baseUrl);
     if (normalized === null || candidates.some((candidate) => candidate.baseUrl === normalized)) {
       return;
     }
 
-    candidates.push(createTeslaCallbackCandidate(source, normalized, reason));
+    candidates.push(createTeslaCallbackCandidate(source, normalized, reason, extraWarnings));
   };
 
-  addCandidate("external_base_url", applyIngressPath(config?.externalBaseUrl ?? null, request), "Manual external base URL configured.");
-  addCandidate("nabu_casa_remote_url", config?.homeAssistantNabuCasaUrl ?? null, "Nabu Casa remote URL configured.");
+  const externalBaseUrl = config?.externalBaseUrl ?? null;
+  const nabuCasaUrl = config?.nabuCasaUrl ?? null;
+  const externalBaseWarnings = externalBaseUrl !== null && nabuCasaUrl !== null
+    ? ["Both external_base_url and nabu_casa_url are set. Using external_base_url."]
+    : [];
+  addCandidate(
+    "external_base_url",
+    applyIngressPath(externalBaseUrl, request),
+    "Manual external_base_url configured.",
+    externalBaseWarnings,
+  );
+  if (externalBaseUrl === null && nabuCasaUrl !== null) {
+    addCandidate(
+      "nabu_casa_url",
+      applyIngressPath(nabuCasaUrl, request),
+      "Deprecated nabu_casa_url configured.",
+      ["nabu_casa_url is deprecated. Use external_base_url instead."],
+    );
+  }
 
   const externalUrl = config?.homeAssistantExternalUrl ?? null;
   if (isNabuCasaUrl(externalUrl)) {
-    addCandidate("nabu_casa_remote_url", externalUrl, "Home Assistant external URL is a Nabu Casa URL.");
+    addCandidate("home_assistant_external_url", externalUrl, "Home Assistant external URL is a Nabu Casa URL.");
   } else {
     addCandidate("home_assistant_external_url", externalUrl, "Home Assistant external URL configured.");
   }
@@ -1568,16 +1590,18 @@ function createTeslaCallbackCandidate(
   source: TeslaCallbackCandidate["source"],
   baseUrl: string,
   reason: string,
+  extraWarnings: string[] = [],
 ): TeslaCallbackCandidate {
   const url = new URL(baseUrl);
-  const warnings = createCallbackWarnings(url);
+  const urlWarnings = createCallbackWarnings(url);
+  const warnings = [...extraWarnings, ...urlWarnings];
   return {
     source,
     baseUrl,
     callbackUrl: `${baseUrl}/api/auth/tesla/callback`,
     reason,
     https: url.protocol === "https:",
-    publiclyReachable: url.protocol === "https:" && warnings.length === 0,
+    publiclyReachable: url.protocol === "https:" && urlWarnings.length === 0,
     ingressDetected: url.pathname.includes("/api/hassio_ingress/"),
     nabuCasaDetected: isNabuCasaUrl(baseUrl),
     warnings,
@@ -1799,6 +1823,7 @@ function writeTeslaStartDebugHtml(
       <dt>Client ID configured</dt><dd>${diagnostics.clientIdConfigured ? "yes" : "no"}</dd>
       <dt>Client secret configured</dt><dd>${diagnostics.clientSecretConfigured ? "yes" : "no"}</dd>
       <dt>external_base_url configured</dt><dd>${callbackInfo.candidates.some((candidate) => candidate.source === "external_base_url") ? "yes" : "no"}</dd>
+      <dt>External URL field used</dt><dd>${escapeHtml(callbackSourceLabel(callbackInfo.candidates.find((candidate) => candidate.selected)?.source ?? null))}</dd>
       <dt>Selected callback URL</dt><dd>${escapeHtml(callbackInfo.callbackUrl ?? "No HTTPS callback URL selected")}</dd>
       <dt>Why selected</dt><dd>${escapeHtml(callbackInfo.selectedReason)}</dd>
       <dt>HTTPS enabled</dt><dd>${callbackInfo.httpsEnabled ? "yes" : "no"}</dd>
@@ -1894,6 +1919,23 @@ function renderTeslaAuthorizationVariant(variant: TeslaAuthorizationUrlVariant):
     <h4>Validation issues</h4>
     <ul>${validationRows}</ul>
   </section>`;
+}
+
+function callbackSourceLabel(source: TeslaCallbackCandidate["source"] | null): string {
+  switch (source) {
+    case "external_base_url":
+      return "external_base_url";
+    case "nabu_casa_url":
+      return "nabu_casa_url (deprecated fallback)";
+    case "home_assistant_external_url":
+      return "Home Assistant external URL";
+    case "ingress_https_url":
+      return "HTTPS ingress URL";
+    case "local_fallback":
+      return "Local fallback";
+    case null:
+      return "None";
+  }
 }
 
 interface TeslaAuthorizationUrlVariant {

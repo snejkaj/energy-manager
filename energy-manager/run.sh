@@ -83,7 +83,7 @@ export TESLA_CLIENT_SECRET
 export TESLA_REGION
 export TESLA_VEHICLE_ID
 export EXTERNAL_BASE_URL="$(config_value 'external_base_url')"
-export HOME_ASSISTANT_NABU_CASA_URL="$(config_value 'home_assistant_nabu_casa_url')"
+export NABU_CASA_URL="$(config_value 'nabu_casa_url')"
 export HOME_ASSISTANT_EXTERNAL_URL="$(config_value 'home_assistant_external_url')"
 export TESLA_ALLOW_INSECURE_CALLBACK="$(config_value 'tesla_allow_insecure_callback')"
 export TIBBER_OAUTH_CLIENT_ID="$(config_value 'tibber_oauth_client_id')"
@@ -118,7 +118,7 @@ log_info "[TeslaConfig] client_secret configured $([ -n "$TESLA_CLIENT_SECRET" ]
 log_info "[TeslaConfig] redirect_uri generated automatically from add-on ingress URL"
 log_info "[TeslaConfig] region ${TESLA_REGION:-eu}"
 log_info "[TeslaConfig] external_base_url configured: $([ -n "$EXTERNAL_BASE_URL" ] && echo yes || echo no)"
-log_info "[TeslaConfig] Home Assistant Nabu Casa URL configured: $([ -n "$HOME_ASSISTANT_NABU_CASA_URL" ] && echo yes || echo no)"
+log_info "[TeslaConfig] nabu_casa_url configured: $([ -n "$NABU_CASA_URL" ] && echo yes || echo no) (deprecated)"
 log_info "[TeslaConfig] Home Assistant external URL configured: $([ -n "$HOME_ASSISTANT_EXTERNAL_URL" ] && echo yes || echo no)"
 log_info "[TeslaConfig] insecure callback override: ${TESLA_ALLOW_INSECURE_CALLBACK:-false}"
 
