@@ -206,7 +206,7 @@ export function startServer(): void {
     }
 
     if (request.method === "GET" && path === "/debug/config") {
-      writeJson(response, 200, createConfigDiagnostics(config));
+      writeJson(response, 200, createConfigDiagnostics(config, request));
       return;
     }
 
@@ -1216,12 +1216,15 @@ function logIntegrationSetupStatus(config: AppConfig): void {
   logger.info("Setup", `Weather: ${weatherConfigured ? "configured" : "missing"}`);
   logger.info("Setup", `Solar: ${solarConfigured ? "configured" : "missing"}`);
   logger.info("Setup", `Charger: ${chargerStatus}`);
+  logger.info("TeslaConfig", `external_base_url detected=${config.externalBaseUrl !== null ? "yes" : "no"}`);
+  logger.info("TeslaConfig", `external_base_url preview=${config.externalBaseUrl === null ? "not configured" : maskUrlPreview(config.externalBaseUrl)}`);
 }
 
-function createConfigDiagnostics(config: AppConfig) {
+function createConfigDiagnostics(config: AppConfig, request: IncomingMessage) {
   const teslaOAuthConfigured =
     config.teslaOAuthClientId !== null
     && config.teslaOAuthClientSecret !== null;
+  const callbackInfo = createTeslaCallbackInfo(request, config);
 
   return {
     tibberAccessTokenConfigured: config.tibberAccessToken !== null,
@@ -1233,6 +1236,19 @@ function createConfigDiagnostics(config: AppConfig) {
     teslaClientSecretConfigured: config.teslaOAuthClientSecret !== null,
     teslaClientSecretLength: config.teslaOAuthClientSecret?.length ?? 0,
     teslaRegion: config.teslaRegion,
+    externalBaseUrlConfigured: config.externalBaseUrl !== null,
+    externalBaseUrl: config.externalBaseUrl === null ? null : maskUrl(config.externalBaseUrl),
+    externalBaseUrlPreview: config.externalBaseUrl === null ? null : maskUrlPreview(config.externalBaseUrl),
+    oauthEnabled: teslaOAuthConfigured,
+    ingressInfo: {
+      selectedCallbackUrl: callbackInfo.callbackUrl === null ? null : maskUrl(callbackInfo.callbackUrl),
+      selectedReason: callbackInfo.selectedReason,
+      httpsEnabled: callbackInfo.httpsEnabled,
+      publiclyReachable: callbackInfo.publiclyReachable,
+      ingressDetected: callbackInfo.ingressDetected,
+      nabuCasaDetected: callbackInfo.nabuCasaDetected,
+      warnings: callbackInfo.warnings,
+    },
   };
 }
 
@@ -1362,6 +1378,19 @@ function maskUrl(value: string): string {
     return `${url.protocol}//${maskHost(url.hostname)}${url.port === "" ? "" : `:${url.port}`}${path}`;
   } catch {
     return maskSensitiveText(value);
+  }
+}
+
+function maskUrlPreview(value: string): string {
+  try {
+    const url = new URL(value);
+    const hostParts = url.hostname.split(".");
+    const firstPart = hostParts[0] ?? "";
+    const maskedFirstPart = firstPart.length <= 4 ? firstPart : `${firstPart.slice(0, 4)}...`;
+    const host = hostParts.length <= 1 ? maskedFirstPart : [maskedFirstPart, ...hostParts.slice(1)].join(".");
+    return `${url.protocol}//${host}`;
+  } catch {
+    return "[invalid url]";
   }
 }
 
