@@ -27,4 +27,10 @@ describe("Tesla UI surface", () => {
     expect(serverSource).toContain('path === "/api/auth/tesla/start"');
     expect(serverSource).toContain('path === "/api/auth/tesla/disconnect"');
   });
+
+  it("keeps development Tesla login variants visible on the debug page", () => {
+    expect(serverSource).toContain("Development Tesla login links");
+    expect(serverSource).toContain("Development only. These links are for obtaining a temporary Tesla authorization code.");
+    expect(serverSource).toContain("https://my.home-assistant.io/redirect/oauth");
+  });
 });

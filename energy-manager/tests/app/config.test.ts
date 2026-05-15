@@ -100,11 +100,13 @@ describe("loadConfig", () => {
       TESLA_CLIENT_ID: " client-id ",
       TESLA_CLIENT_SECRET: " secret ",
       TESLA_PUBLIC_CALLBACK_URL: " https://energy-manager.example.com/api/auth/tesla/callback ",
+      TESLA_DEV_REDIRECT_URI: " https://my.home-assistant.io/redirect/oauth ",
     });
 
     expect(config.teslaOAuthClientId).toBe("client-id");
     expect(config.teslaOAuthClientSecret).toBe("secret");
     expect(config.teslaPublicCallbackUrl).toBe("https://energy-manager.example.com/api/auth/tesla/callback");
+    expect(config.teslaDevRedirectUri).toBe("https://my.home-assistant.io/redirect/oauth");
   });
 
   it("accepts a temporary Tesla development token", () => {

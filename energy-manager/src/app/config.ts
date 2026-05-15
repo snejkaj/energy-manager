@@ -14,6 +14,7 @@ export interface AppConfig {
   teslaOAuthClientId: string | null;
   teslaOAuthClientSecret: string | null;
   teslaPublicCallbackUrl: string | null;
+  teslaDevRedirectUri: string | null;
   devMode: boolean;
   externalBaseUrl: string | null;
   nabuCasaUrl: string | null;
@@ -59,6 +60,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     teslaOAuthClientId: emptyToNull(trimEnv(env.TESLA_CLIENT_ID)),
     teslaOAuthClientSecret: emptyToNull(trimEnv(env.TESLA_CLIENT_SECRET)),
     teslaPublicCallbackUrl: emptyToNull(trimEnv(env.TESLA_PUBLIC_CALLBACK_URL)),
+    teslaDevRedirectUri: emptyToNull(trimEnv(env.TESLA_DEV_REDIRECT_URI)),
     devMode: parseBoolean(env.DEV_MODE, false, "development mode", setupNotes),
     externalBaseUrl: emptyToNull(trimEnv(env.EXTERNAL_BASE_URL)),
     nabuCasaUrl: emptyToNull(trimEnv(env.NABU_CASA_URL ?? env.HOME_ASSISTANT_NABU_CASA_URL ?? env.NABU_CASA_REMOTE_URL)),

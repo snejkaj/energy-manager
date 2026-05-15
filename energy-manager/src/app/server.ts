@@ -214,13 +214,14 @@ export function startServer(): void {
       const callbackInfo = createTeslaCallbackInfo(request, config);
       const diagnostics = authService.getOAuthDiagnostics("tesla", callbackInfo.callbackUrl);
       const authStart = authService.startAuth("tesla", callbackInfo.callbackUrl);
+      const developmentAuthStart = authService.startAuth("tesla", createTeslaDevelopmentRedirectUri(config));
       logTeslaAuthStart(authStart);
-      writeTeslaStartDebugHtml(response, diagnostics, authStart, callbackInfo, createBackHref(path));
+      writeTeslaStartDebugHtml(response, diagnostics, authStart, developmentAuthStart, callbackInfo, createBackHref(path));
       return;
     }
 
     if (request.method === "GET" && path === "/debug/tesla/manual-token-helper") {
-      writeTeslaManualTokenHelperHtml(response, config, createTeslaCallbackInfo(request, config).callbackUrl, null, null);
+      writeTeslaManualTokenHelperHtml(response, config, createTeslaDevelopmentRedirectUri(config), null, null);
       return;
     }
 
@@ -228,22 +229,22 @@ export function startServer(): void {
       void readRequestBody(request)
         .then(async (body) => {
           if (!config.devMode) {
-            writeTeslaManualTokenHelperHtml(response, config, createTeslaCallbackInfo(request, config).callbackUrl, null, "Manual token helper is disabled. Set DEV_MODE=true to use it.");
+            writeTeslaManualTokenHelperHtml(response, config, createTeslaDevelopmentRedirectUri(config), null, "Manual token helper is disabled. Set DEV_MODE=true to use it.");
             return;
           }
           const code = new URLSearchParams(body).get("authorization_code")?.trim() ?? "";
           if (code === "") {
-            writeTeslaManualTokenHelperHtml(response, config, createTeslaCallbackInfo(request, config).callbackUrl, null, "Authorization code is required.");
+            writeTeslaManualTokenHelperHtml(response, config, createTeslaDevelopmentRedirectUri(config), null, "Authorization code is required.");
             return;
           }
           const tokenResult = await authService.exchangeLatestPendingTeslaCode(code);
-          writeTeslaManualTokenHelperHtml(response, config, createTeslaCallbackInfo(request, config).callbackUrl, tokenResult, null);
+          writeTeslaManualTokenHelperHtml(response, config, createTeslaDevelopmentRedirectUri(config), tokenResult, null);
         })
         .catch((error: unknown) => {
           writeTeslaManualTokenHelperHtml(
             response,
             config,
-            createTeslaCallbackInfo(request, config).callbackUrl,
+            createTeslaDevelopmentRedirectUri(config),
             null,
             error instanceof Error ? error.message : "Token exchange failed.",
           );
@@ -364,8 +365,9 @@ export function startServer(): void {
       const callbackInfo = createTeslaCallbackInfo(request, config);
       const diagnostics = authService.getOAuthDiagnostics("tesla", callbackInfo.callbackUrl);
       const authStart = authService.startAuth("tesla", callbackInfo.callbackUrl);
+      const developmentAuthStart = authService.startAuth("tesla", createTeslaDevelopmentRedirectUri(config));
       logTeslaAuthStart(authStart);
-      writeTeslaStartDebugHtml(response, diagnostics, authStart, callbackInfo, createBackHref(path));
+      writeTeslaStartDebugHtml(response, diagnostics, authStart, developmentAuthStart, callbackInfo, createBackHref(path));
       return;
     }
 
@@ -1328,6 +1330,8 @@ function createConfigDiagnostics(config: AppConfig, request: IncomingMessage) {
     devMode: config.devMode,
     teslaPublicCallbackUrlConfigured: config.teslaPublicCallbackUrl !== null,
     teslaPublicCallbackUrl: config.teslaPublicCallbackUrl === null ? null : maskUrl(config.teslaPublicCallbackUrl),
+    teslaDevRedirectUriConfigured: config.teslaDevRedirectUri !== null,
+    teslaDevRedirectUri: maskUrl(createTeslaDevelopmentRedirectUri(config)),
     externalBaseUrlConfigured: config.externalBaseUrl !== null,
     externalBaseUrl: config.externalBaseUrl === null ? null : maskUrl(config.externalBaseUrl),
     externalBaseUrlPreview: config.externalBaseUrl === null ? null : maskUrlPreview(config.externalBaseUrl),
@@ -2039,6 +2043,7 @@ function writeTeslaStartDebugHtml(
   response: ServerResponse,
   diagnostics: ProviderOAuthDiagnostics,
   authStart: AuthStartResult,
+  developmentAuthStart: AuthStartResult,
   callbackInfo: TeslaCallbackInfo,
   backHref: string,
 ): void {
@@ -2057,9 +2062,9 @@ function writeTeslaStartDebugHtml(
   const callbackCandidates = callbackInfo.candidates
     .map((candidate) => `<li>${candidate.selected ? "<strong>Selected:</strong> " : ""}${escapeHtml(candidate.source)} - ${escapeHtml(candidate.callbackUrl)} (${candidate.reason}; HTTPS: ${candidate.https ? "yes" : "no"}; public: ${candidate.publiclyReachable ? "yes" : "no"})${candidate.warnings.length === 0 ? "" : ` Warnings: ${escapeHtml(candidate.warnings.join(" "))}`}</li>`)
     .join("");
-  const variants = createTeslaAuthorizationUrlVariants(authStart.authorizationUrl);
+  const variants = createTeslaAuthorizationUrlVariants(developmentAuthStart.authorizationUrl);
   const variantCards = variants.length === 0
-    ? "<p>No variants available because no authorization URL was generated.</p>"
+    ? "<p>No development variants available. Configure Tesla client credentials first.</p>"
     : variants.map(renderTeslaAuthorizationVariant).join("");
   const oauthStatus = createTeslaOAuthStatus();
   const oauthStatusRows = [
@@ -2113,6 +2118,7 @@ function writeTeslaStartDebugHtml(
       <dt>Client ID configured</dt><dd>${diagnostics.clientIdConfigured ? "yes" : "no"}</dd>
       <dt>Client secret configured</dt><dd>${diagnostics.clientSecretConfigured ? "yes" : "no"}</dd>
       <dt>Public callback URL configured</dt><dd>${callbackInfo.publicCallbackConfigured ? "yes" : "no"}</dd>
+      <dt>Development redirect URI</dt><dd>${escapeHtml(createTeslaDevelopmentRedirectUriFromAuthStart(developmentAuthStart))}</dd>
       <dt>Ingress callback supported</dt><dd>${callbackInfo.ingressCallbackSupported ? "yes" : "no"}</dd>
       <dt>external_base_url configured</dt><dd>${callbackInfo.candidates.some((candidate) => candidate.source === "external_base_url") ? "yes" : "no"}</dd>
       <dt>External URL field used</dt><dd>${escapeHtml(callbackSourceLabel(callbackInfo.candidates.find((candidate) => candidate.selected)?.source ?? null))}</dd>
@@ -2161,7 +2167,8 @@ function writeTeslaStartDebugHtml(
     <h2>Authorization URL validation</h2>
     <ul>${validationErrors}</ul>
     ${authUrlControls}
-    <h2>Tesla login variants</h2>
+    <h2>Development Tesla login links</h2>
+    <p><strong>Development only. These links are for obtaining a temporary Tesla authorization code.</strong></p>
     ${variantCards}
     <p><a href="${escapeHtml(backHref)}">Back to Energy Manager</a></p>
     <script>
@@ -2230,6 +2237,14 @@ function renderTeslaAuthorizationVariant(variant: TeslaAuthorizationUrlVariant):
     <h4>Validation issues</h4>
     <ul>${validationRows}</ul>
   </section>`;
+}
+
+function createTeslaDevelopmentRedirectUri(config: AppConfig): string {
+  return config.teslaDevRedirectUri ?? "https://my.home-assistant.io/redirect/oauth";
+}
+
+function createTeslaDevelopmentRedirectUriFromAuthStart(authStart: AuthStartResult): string {
+  return authStart.redirectUri ?? "not configured";
 }
 
 function callbackSourceLabel(source: TeslaCallbackCandidate["source"] | null): string {

@@ -191,6 +191,7 @@ tesla_region: "eu"
 tesla_client_id: ""
 tesla_client_secret: ""
 tesla_public_callback_url: ""
+tesla_dev_redirect_uri: ""
 tesla_dev_access_token: ""
 dev_mode: false
 external_base_url: ""
@@ -221,6 +222,8 @@ tesla_dev_access_token: "paste-temporary-development-token-here"
 The UI labels this as `Using temporary Tesla development token`. OAuth remains the preferred path. A temporary development token expires and must be replaced manually; never commit it, share it, or use it as the long-term setup.
 
 For local OAuth troubleshooting only, `dev_mode: true` enables `/debug/tesla/manual-token-helper`. It can exchange an authorization code from an already-started Tesla login and shows tokens only on that development-only page. Keep `dev_mode` off outside local testing.
+
+The Tesla OAuth debug page also shows **Development Tesla login links**. Those links use `tesla_dev_redirect_uri` when configured, otherwise they fall back to `https://my.home-assistant.io/redirect/oauth`, so a developer can obtain a temporary authorization code while the production public callback is unresolved.
 
 Most users do not need `tibber_home_id`.
 
