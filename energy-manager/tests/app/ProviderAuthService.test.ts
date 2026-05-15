@@ -81,12 +81,12 @@ describe("ProviderAuthService", () => {
     const config = loadConfig({
       TESLA_CLIENT_ID: "client-id",
       TESLA_CLIENT_SECRET: "secret",
-      TESLA_ACCESS_TOKEN: "temporary-token",
+      TESLA_DEV_ACCESS_TOKEN: "temporary-token",
     });
     const service = new ProviderAuthService(config);
 
     expect(service.getAccessToken("tesla")).toBe("temporary-token");
-    expect(service.getConnectionStatus("tesla").summary).toBe("Using temporary Tesla access token");
+    expect(service.getConnectionStatus("tesla").summary).toBe("Using temporary Tesla development token");
     expect(service.isUsingTemporaryTeslaAccessToken()).toBe(true);
 
     const start = service.startAuth("tesla", "http://localhost:3000/api/auth/tesla/callback");

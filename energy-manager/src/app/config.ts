@@ -5,7 +5,7 @@ export interface AppConfig {
   databaseUrl: string | null;
   tibberAccessToken: string | null;
   tibberHomeId: string | null;
-  teslaAccessToken: string | null;
+  teslaDevAccessToken: string | null;
   teslaVehicleId: string | null;
   teslaRegion: "eu" | "us" | "na";
   tibberOAuthClientId: string | null;
@@ -50,7 +50,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     databaseUrl: emptyToNull(env.DATABASE_URL),
     tibberAccessToken: emptyToNull(trimEnv(env.TIBBER_ACCESS_TOKEN)),
     tibberHomeId: emptyToNull(env.TIBBER_HOME_ID),
-    teslaAccessToken: emptyToNull(trimEnv(env.TESLA_ACCESS_TOKEN)),
+    teslaDevAccessToken: emptyToNull(trimEnv(env.TESLA_DEV_ACCESS_TOKEN)),
     teslaVehicleId: emptyToNull(trimEnv(env.TESLA_VEHICLE_ID)),
     teslaRegion: parseTeslaRegion(env.TESLA_REGION, setupNotes),
     tibberOAuthClientId: emptyToNull(env.TIBBER_OAUTH_CLIENT_ID),

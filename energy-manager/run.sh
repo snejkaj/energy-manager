@@ -77,7 +77,7 @@ if [ -f "$CONFIG_PATH" ] && command -v jq >/dev/null 2>&1; then
   TIBBER_HOME_ID="$(jq -r '.tibber_home_id // empty' /data/options.json)"
   TESLA_CLIENT_ID="$(jq -r '.tesla_client_id // empty' /data/options.json)"
   TESLA_CLIENT_SECRET="$(jq -r '.tesla_client_secret // empty' /data/options.json)"
-  TESLA_ACCESS_TOKEN="$(jq -r '.tesla_access_token // empty' /data/options.json)"
+  TESLA_DEV_ACCESS_TOKEN="$(jq -r '.tesla_dev_access_token // empty' /data/options.json)"
   TESLA_REGION="$(jq -r '.tesla_region // "eu"' /data/options.json)"
   TESLA_VEHICLE_ID="$(jq -r '.tesla_vehicle_id // empty' /data/options.json)"
   TESLA_PUBLIC_CALLBACK_URL="$(jq -r '.tesla_public_callback_url // empty' /data/options.json)"
@@ -91,7 +91,7 @@ else
   TIBBER_HOME_ID="$(config_value 'tibber_home_id')"
   TESLA_CLIENT_ID="$(config_value 'tesla_client_id')"
   TESLA_CLIENT_SECRET="$(config_value 'tesla_client_secret')"
-  TESLA_ACCESS_TOKEN="$(config_value 'tesla_access_token')"
+  TESLA_DEV_ACCESS_TOKEN="$(config_value 'tesla_dev_access_token')"
   TESLA_REGION="$(config_value 'tesla_region')"
   TESLA_VEHICLE_ID="$(config_value 'tesla_vehicle_id')"
   TESLA_PUBLIC_CALLBACK_URL="$(config_value 'tesla_public_callback_url')"
@@ -105,7 +105,7 @@ export TIBBER_ACCESS_TOKEN
 export TIBBER_HOME_ID
 export TESLA_CLIENT_ID
 export TESLA_CLIENT_SECRET
-export TESLA_ACCESS_TOKEN
+export TESLA_DEV_ACCESS_TOKEN
 export TESLA_REGION
 export TESLA_VEHICLE_ID
 export TESLA_PUBLIC_CALLBACK_URL
@@ -143,7 +143,7 @@ log_info "[TibberConfig] TIBBER_ACCESS_TOKEN configured: $([ -n "$TIBBER_ACCESS_
 log_info "[TibberConfig] TIBBER_HOME_ID configured: $([ -n "$TIBBER_HOME_ID" ] && echo yes || echo no)"
 log_info "[TeslaConfig] client_id configured $([ -n "$TESLA_CLIENT_ID" ] && echo yes || echo no) length ${#TESLA_CLIENT_ID}"
 log_info "[TeslaConfig] client_secret configured $([ -n "$TESLA_CLIENT_SECRET" ] && echo yes || echo no) length ${#TESLA_CLIENT_SECRET}"
-log_info "[TeslaConfig] temporary access token configured: $([ -n "$TESLA_ACCESS_TOKEN" ] && echo yes || echo no)"
+log_info "[TeslaConfig] temporary development token configured: $([ -n "$TESLA_DEV_ACCESS_TOKEN" ] && echo yes || echo no) length ${#TESLA_DEV_ACCESS_TOKEN}"
 log_info "[TeslaConfig] public callback URL configured: $([ -n "$TESLA_PUBLIC_CALLBACK_URL" ] && echo yes || echo no)"
 log_info "[TeslaConfig] public callback URL preview: $(mask_url_preview "$TESLA_PUBLIC_CALLBACK_URL")"
 log_info "[TeslaConfig] dev mode: ${DEV_MODE:-false}"

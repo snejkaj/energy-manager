@@ -837,7 +837,7 @@ async function getTeslaVehiclesResponse(config: AppConfig, authService: Provider
   return {
     connected: true,
     usingDemoData: false,
-    warning: authService.isUsingTemporaryTeslaAccessToken() ? "Using temporary Tesla access token" : null,
+    warning: authService.isUsingTemporaryTeslaAccessToken() ? "Using temporary Tesla development token" : null,
     vehicles: vehicles.map((vehicle) => ({
       vehicleId: vehicle.id_s ?? vehicle.vin ?? String(vehicle.id ?? ""),
       vehicleName: vehicle.display_name ?? null,
@@ -860,7 +860,7 @@ async function getTeslaStateResponse(config: AppConfig, authService: ProviderAut
   return createTeslaStatusFromState(
     true,
     state,
-    authService.isUsingTemporaryTeslaAccessToken() ? "Using temporary Tesla access token" : null,
+    authService.isUsingTemporaryTeslaAccessToken() ? "Using temporary Tesla development token" : null,
   );
 }
 
@@ -1302,7 +1302,7 @@ function logIntegrationSetupStatus(config: AppConfig): void {
   logger.info("TeslaConfig", `external_base_url preview=${config.externalBaseUrl === null ? "not configured" : maskUrlPreview(config.externalBaseUrl)}`);
   logger.info("TeslaConfig", `tesla_public_callback_url detected=${config.teslaPublicCallbackUrl !== null ? "yes" : "no"}`);
   logger.info("TeslaConfig", `tesla_public_callback_url preview=${config.teslaPublicCallbackUrl === null ? "not configured" : maskUrlPreview(config.teslaPublicCallbackUrl)}`);
-  logger.info("TeslaConfig", `temporary access token configured=${config.teslaAccessToken !== null ? "yes" : "no"}`);
+  logger.info("TeslaConfig", `temporary development token configured=${config.teslaDevAccessToken !== null ? "yes" : "no"} length=${config.teslaDevAccessToken?.length ?? 0}`);
   logger.info("TeslaConfig", `dev mode=${config.devMode ? "yes" : "no"}`);
 }
 
@@ -1323,7 +1323,8 @@ function createConfigDiagnostics(config: AppConfig, request: IncomingMessage) {
     teslaClientSecretConfigured: config.teslaOAuthClientSecret !== null,
     teslaClientSecretLength: config.teslaOAuthClientSecret?.length ?? 0,
     teslaRegion: config.teslaRegion,
-    teslaTemporaryAccessTokenConfigured: config.teslaAccessToken !== null,
+    teslaDevAccessTokenConfigured: config.teslaDevAccessToken !== null,
+    teslaDevAccessTokenLength: config.teslaDevAccessToken?.length ?? 0,
     devMode: config.devMode,
     teslaPublicCallbackUrlConfigured: config.teslaPublicCallbackUrl !== null,
     teslaPublicCallbackUrl: config.teslaPublicCallbackUrl === null ? null : maskUrl(config.teslaPublicCallbackUrl),

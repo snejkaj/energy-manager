@@ -268,7 +268,7 @@ export class ProviderAuthService {
       setupMessages,
       demoStorage: token !== undefined && this.config.databaseUrl === null,
       summary: usingTemporaryTeslaToken
-        ? "Using temporary Tesla access token"
+        ? "Using temporary Tesla development token"
         : connected
           ? `${labelProvider(provider)} connected in read-only mode.`
           : null,
@@ -292,7 +292,7 @@ export class ProviderAuthService {
   }
 
   isUsingTemporaryTeslaAccessToken(): boolean {
-    return !this.tokens.has("tesla") && this.config.teslaAccessToken !== null;
+    return !this.tokens.has("tesla") && this.config.teslaDevAccessToken !== null;
   }
 
   hasPendingState(provider: AuthProviderId): boolean {
@@ -493,7 +493,7 @@ function createTokenExchangeError(provider: AuthProviderId, status: number, resp
 }
 
 function getEnvironmentToken(config: AppConfig, provider: AuthProviderId): string | null {
-  return provider === "tibber" ? config.tibberAccessToken : config.teslaAccessToken;
+  return provider === "tibber" ? config.tibberAccessToken : config.teslaDevAccessToken;
 }
 
 function getMissingOAuthConfig(config: AppConfig, provider: AuthProviderId, redirectUriOverride?: string | null): string[] {

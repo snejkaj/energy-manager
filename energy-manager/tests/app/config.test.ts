@@ -109,10 +109,10 @@ describe("loadConfig", () => {
 
   it("accepts a temporary Tesla development token", () => {
     const config = loadConfig({
-      TESLA_ACCESS_TOKEN: " temporary-token ",
+      TESLA_DEV_ACCESS_TOKEN: " temporary-token ",
     });
 
-    expect(config.teslaAccessToken).toBe("temporary-token");
+    expect(config.teslaDevAccessToken).toBe("temporary-token");
   });
 
   it("does not use legacy Tesla OAuth environment aliases", () => {
