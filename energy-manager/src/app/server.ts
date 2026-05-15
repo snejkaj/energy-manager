@@ -2066,6 +2066,10 @@ function writeTeslaStartDebugHtml(
   const variantCards = variants.length === 0
     ? "<p>No development variants available. Configure Tesla client credentials first.</p>"
     : variants.map(renderTeslaAuthorizationVariant).join("");
+  const developmentLoginAvailable = developmentAuthStart.authorizationUrl !== null;
+  const developmentLoginReason = developmentLoginAvailable
+    ? "Development login URL generated."
+    : developmentAuthStart.message;
   const oauthStatus = createTeslaOAuthStatus();
   const oauthStatusRows = [
     ["lastStep", oauthStatus.lastStep ?? "none"],
@@ -2118,7 +2122,10 @@ function writeTeslaStartDebugHtml(
       <dt>Client ID configured</dt><dd>${diagnostics.clientIdConfigured ? "yes" : "no"}</dd>
       <dt>Client secret configured</dt><dd>${diagnostics.clientSecretConfigured ? "yes" : "no"}</dd>
       <dt>Public callback URL configured</dt><dd>${callbackInfo.publicCallbackConfigured ? "yes" : "no"}</dd>
+      <dt>Development login enabled</dt><dd>${developmentLoginAvailable ? "yes" : "no"}</dd>
+      <dt>Development login status</dt><dd>${escapeHtml(developmentLoginReason)}</dd>
       <dt>Development redirect URI</dt><dd>${escapeHtml(createTeslaDevelopmentRedirectUriFromAuthStart(developmentAuthStart))}</dd>
+      <dt>Development authorization URL</dt><dd>${escapeHtml(developmentAuthStart.authorizationUrl ?? "not generated")}</dd>
       <dt>Ingress callback supported</dt><dd>${callbackInfo.ingressCallbackSupported ? "yes" : "no"}</dd>
       <dt>external_base_url configured</dt><dd>${callbackInfo.candidates.some((candidate) => candidate.source === "external_base_url") ? "yes" : "no"}</dd>
       <dt>External URL field used</dt><dd>${escapeHtml(callbackSourceLabel(callbackInfo.candidates.find((candidate) => candidate.selected)?.source ?? null))}</dd>
