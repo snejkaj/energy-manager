@@ -210,6 +210,15 @@ export function startServer(): void {
       return;
     }
 
+    if (request.method === "GET" && path === "/debug/tesla") {
+      const callbackInfo = createTeslaCallbackInfo(request, config);
+      const diagnostics = authService.getOAuthDiagnostics("tesla", callbackInfo.callbackUrl);
+      const authStart = authService.startAuth("tesla", callbackInfo.callbackUrl);
+      logTeslaAuthStart(authStart);
+      writeTeslaStartDebugHtml(response, diagnostics, authStart, callbackInfo, createBackHref(path));
+      return;
+    }
+
     if (request.method === "GET" && path === "/debug/tesla/manual-token-helper") {
       writeTeslaManualTokenHelperHtml(response, config, createTeslaCallbackInfo(request, config).callbackUrl, null, null);
       return;
@@ -2722,6 +2731,8 @@ function renderHtml(): string {
           <dd id="diag-tesla-redirect-uri">Not configured</dd>
           <dt>Tesla OAuth configured</dt>
           <dd id="diag-tesla-oauth-configured">Unknown</dd>
+          <dt>Tesla debug route available</dt>
+          <dd id="diag-tesla-debug-route">Unknown</dd>
           <dt>Last Tesla OAuth error</dt>
           <dd id="diag-tesla-oauth-error">None</dd>
           <dt>OAuth token exchange</dt>
@@ -2849,6 +2860,7 @@ function renderHtml(): string {
             <p class="subtle" id="tesla-last-update">Last update: demo</p>
             <div class="connect-row">
               <button type="button" id="connect-tesla">Connect Tesla</button>
+              <a href="./auth/tesla/start-debug">Open Tesla OAuth debug</a>
               <button type="button" id="disconnect-tesla">Disconnect Tesla</button>
               <button type="button" id="refresh-tesla">Refresh Tesla</button>
             </div>
