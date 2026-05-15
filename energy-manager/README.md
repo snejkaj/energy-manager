@@ -158,6 +158,7 @@ Initial Home Assistant options include:
 - Tesla region, defaulting to `eu`
 - Tibber OAuth client ID, secret, and redirect URI
 - Tesla OAuth client ID, secret, and public callback URL
+- optional Tesla temporary development token
 - optional token encryption key
 - PostgreSQL database URL
 - departure time
@@ -190,6 +191,8 @@ tesla_region: "eu"
 tesla_client_id: ""
 tesla_client_secret: ""
 tesla_public_callback_url: ""
+tesla_access_token: ""
+dev_mode: false
 external_base_url: ""
 home_assistant_external_url: ""
 tibber_oauth_client_id: ""
@@ -208,6 +211,16 @@ charging_efficiency: "0.9"
 When `TIBBER_ACCESS_TOKEN` is set, the app uses Tibber as the default electricity price provider and fetches today/tomorrow prices with a personal access token. Without the token, electricity and telemetry default to mock providers for local development. Charger control defaults to planning-only mode.
 
 Tesla can be connected from the UI with the `Connect Tesla` button after `tesla_client_id`, `tesla_client_secret`, and `tesla_public_callback_url` are configured. Tokens are stored server-side only after OAuth login. The app uses Tesla Fleet API in read-only mode to fetch battery state, plugged-in state, charging state, range, vehicle name, and online/asleep/offline state. It does not wake the vehicle and does not send vehicle commands. `tesla_region` defaults to `eu`; set it to `us` only for North America.
+
+For development and testing only, you can temporarily set:
+
+```yaml
+tesla_access_token: "paste-temporary-development-token-here"
+```
+
+The UI labels this as `Using temporary Tesla access token`. OAuth remains the preferred path. A temporary access token expires and must be replaced manually; never commit it, share it, or use it as the long-term setup.
+
+For local OAuth troubleshooting only, `dev_mode: true` enables `/debug/tesla/manual-token-helper`. It can exchange an authorization code from an already-started Tesla login and shows tokens only on that development-only page. Keep `dev_mode` off outside local testing.
 
 Most users do not need `tibber_home_id`.
 

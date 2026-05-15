@@ -73,6 +73,12 @@ interface OAuthTokenResponse {
   expires_in?: number;
 }
 
+export interface ManualTeslaTokenExchangeResult {
+  accessToken: string;
+  refreshToken: string | null;
+  expiresIn: number | null;
+}
+
 interface PersistedProviderToken {
   provider: AuthProviderId;
   accessToken: string;
@@ -253,6 +259,7 @@ export class ProviderAuthService {
     const envToken = getEnvironmentToken(this.config, provider);
     const connected = token !== undefined || envToken !== null;
     const setupMessages = getMissingOAuthConfig(this.config, provider);
+    const usingTemporaryTeslaToken = provider === "tesla" && token === undefined && envToken !== null;
 
     return {
       provider,
@@ -260,7 +267,11 @@ export class ProviderAuthService {
       oauthConfigured: setupMessages.length === 0,
       setupMessages,
       demoStorage: token !== undefined && this.config.databaseUrl === null,
-      summary: connected ? `${labelProvider(provider)} connected in read-only mode.` : null,
+      summary: usingTemporaryTeslaToken
+        ? "Using temporary Tesla access token"
+        : connected
+          ? `${labelProvider(provider)} connected in read-only mode.`
+          : null,
       warning: connected
         ? null
         : provider === "tibber"
@@ -280,8 +291,29 @@ export class ProviderAuthService {
     return this.tokens.get(provider)?.accessToken ?? getEnvironmentToken(this.config, provider);
   }
 
+  isUsingTemporaryTeslaAccessToken(): boolean {
+    return !this.tokens.has("tesla") && this.config.teslaAccessToken !== null;
+  }
+
   hasPendingState(provider: AuthProviderId): boolean {
     return [...this.pendingStates.values()].some((pendingState) => pendingState.provider === provider);
+  }
+
+  async exchangeLatestPendingTeslaCode(code: string): Promise<ManualTeslaTokenExchangeResult> {
+    const pendingState = [...this.pendingStates.values()]
+      .filter((state) => state.provider === "tesla")
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
+    if (pendingState === undefined) {
+      throw new Error("No pending Tesla OAuth login exists. Open Tesla OAuth debug and start Tesla login first.");
+    }
+
+    const tokenResponse = await this.exchangeCode("tesla", code, pendingState);
+    this.pendingStates.delete(pendingState.state);
+    return {
+      accessToken: tokenResponse.access_token,
+      refreshToken: tokenResponse.refresh_token ?? null,
+      expiresIn: tokenResponse.expires_in ?? null,
+    };
   }
 
   private async exchangeCode(
@@ -461,7 +493,7 @@ function createTokenExchangeError(provider: AuthProviderId, status: number, resp
 }
 
 function getEnvironmentToken(config: AppConfig, provider: AuthProviderId): string | null {
-  return provider === "tibber" ? config.tibberAccessToken : null;
+  return provider === "tibber" ? config.tibberAccessToken : config.teslaAccessToken;
 }
 
 function getMissingOAuthConfig(config: AppConfig, provider: AuthProviderId, redirectUriOverride?: string | null): string[] {

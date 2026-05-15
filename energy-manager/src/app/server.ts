@@ -210,6 +210,38 @@ export function startServer(): void {
       return;
     }
 
+    if (request.method === "GET" && path === "/debug/tesla/manual-token-helper") {
+      writeTeslaManualTokenHelperHtml(response, config, createTeslaCallbackInfo(request, config).callbackUrl, null, null);
+      return;
+    }
+
+    if (request.method === "POST" && path === "/debug/tesla/manual-token-helper") {
+      void readRequestBody(request)
+        .then(async (body) => {
+          if (!config.devMode) {
+            writeTeslaManualTokenHelperHtml(response, config, createTeslaCallbackInfo(request, config).callbackUrl, null, "Manual token helper is disabled. Set DEV_MODE=true to use it.");
+            return;
+          }
+          const code = new URLSearchParams(body).get("authorization_code")?.trim() ?? "";
+          if (code === "") {
+            writeTeslaManualTokenHelperHtml(response, config, createTeslaCallbackInfo(request, config).callbackUrl, null, "Authorization code is required.");
+            return;
+          }
+          const tokenResult = await authService.exchangeLatestPendingTeslaCode(code);
+          writeTeslaManualTokenHelperHtml(response, config, createTeslaCallbackInfo(request, config).callbackUrl, tokenResult, null);
+        })
+        .catch((error: unknown) => {
+          writeTeslaManualTokenHelperHtml(
+            response,
+            config,
+            createTeslaCallbackInfo(request, config).callbackUrl,
+            null,
+            error instanceof Error ? error.message : "Token exchange failed.",
+          );
+        });
+      return;
+    }
+
     if (request.method === "GET" && path === "/debug/tesla/authorization-url") {
       const callbackInfo = createTeslaCallbackInfo(request, config);
       const authStart = authService.startAuth("tesla", callbackInfo.callbackUrl);
@@ -796,7 +828,7 @@ async function getTeslaVehiclesResponse(config: AppConfig, authService: Provider
   return {
     connected: true,
     usingDemoData: false,
-    warning: null,
+    warning: authService.isUsingTemporaryTeslaAccessToken() ? "Using temporary Tesla access token" : null,
     vehicles: vehicles.map((vehicle) => ({
       vehicleId: vehicle.id_s ?? vehicle.vin ?? String(vehicle.id ?? ""),
       vehicleName: vehicle.display_name ?? null,
@@ -816,7 +848,11 @@ async function getTeslaStateResponse(config: AppConfig, authService: ProviderAut
     return createTeslaDemoStatus("Tesla data is unavailable - using demo vehicle data");
   }
 
-  return createTeslaStatusFromState(true, state, null);
+  return createTeslaStatusFromState(
+    true,
+    state,
+    authService.isUsingTemporaryTeslaAccessToken() ? "Using temporary Tesla access token" : null,
+  );
 }
 
 function createTeslaVehicleProvider(config: AppConfig, authService: ProviderAuthService): TeslaVehicleStateProvider | null {
@@ -1257,6 +1293,8 @@ function logIntegrationSetupStatus(config: AppConfig): void {
   logger.info("TeslaConfig", `external_base_url preview=${config.externalBaseUrl === null ? "not configured" : maskUrlPreview(config.externalBaseUrl)}`);
   logger.info("TeslaConfig", `tesla_public_callback_url detected=${config.teslaPublicCallbackUrl !== null ? "yes" : "no"}`);
   logger.info("TeslaConfig", `tesla_public_callback_url preview=${config.teslaPublicCallbackUrl === null ? "not configured" : maskUrlPreview(config.teslaPublicCallbackUrl)}`);
+  logger.info("TeslaConfig", `temporary access token configured=${config.teslaAccessToken !== null ? "yes" : "no"}`);
+  logger.info("TeslaConfig", `dev mode=${config.devMode ? "yes" : "no"}`);
 }
 
 function createConfigDiagnostics(config: AppConfig, request: IncomingMessage) {
@@ -1276,6 +1314,8 @@ function createConfigDiagnostics(config: AppConfig, request: IncomingMessage) {
     teslaClientSecretConfigured: config.teslaOAuthClientSecret !== null,
     teslaClientSecretLength: config.teslaOAuthClientSecret?.length ?? 0,
     teslaRegion: config.teslaRegion,
+    teslaTemporaryAccessTokenConfigured: config.teslaAccessToken !== null,
+    devMode: config.devMode,
     teslaPublicCallbackUrlConfigured: config.teslaPublicCallbackUrl !== null,
     teslaPublicCallbackUrl: config.teslaPublicCallbackUrl === null ? null : maskUrl(config.teslaPublicCallbackUrl),
     externalBaseUrlConfigured: config.externalBaseUrl !== null,
@@ -1561,6 +1601,82 @@ function writeAuthResultHtml(
     <ul>${items}</ul>
     ${teslaDebugHref === null ? "" : `<p><a href="${escapeHtml(teslaDebugHref)}">Open Tesla OAuth debug</a></p>`}
     <p><a href="${escapeHtml(backHref)}">Back to Energy Manager</a></p>
+  </body>
+</html>`);
+}
+
+function writeTeslaManualTokenHelperHtml(
+  response: ServerResponse,
+  config: AppConfig,
+  redirectUri: string | null,
+  tokenResult: { accessToken: string; refreshToken: string | null; expiresIn: number | null } | null,
+  error: string | null,
+): void {
+  response.statusCode = config.devMode ? 200 : 403;
+  response.setHeader("content-type", "text/html; charset=utf-8");
+  const resultHtml = tokenResult === null
+    ? ""
+    : `<section>
+      <h2>Token exchange result</h2>
+      <p><strong>Do not share this token.</strong></p>
+      <label for="access-token">Access token</label>
+      <textarea id="access-token" rows="6" readonly>${escapeHtml(tokenResult.accessToken)}</textarea>
+      <p><button type="button" data-copy-target="access-token">Copy access token</button></p>
+      <p>expires_in: ${tokenResult.expiresIn === null ? "not provided" : tokenResult.expiresIn}</p>
+      ${tokenResult.refreshToken === null ? "" : `<button type="button" id="show-refresh-token">Show refresh token</button>
+      <div id="refresh-token-wrap" hidden>
+        <label for="refresh-token">Refresh token</label>
+        <textarea id="refresh-token" rows="6" readonly>${escapeHtml(tokenResult.refreshToken)}</textarea>
+        <p><button type="button" data-copy-target="refresh-token">Copy refresh token</button></p>
+      </div>`}
+    </section>`;
+  const errorHtml = error === null ? "" : `<p role="alert" style="color:#b91c1c">${escapeHtml(error)}</p>`;
+  response.end(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tesla manual token helper</title>
+    <style>
+      body { font-family: system-ui, sans-serif; line-height: 1.4; margin: 2rem; }
+      textarea, input { box-sizing: border-box; width: 100%; max-width: 720px; }
+      textarea { font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; }
+      button { cursor: pointer; padding: 0.65rem 0.9rem; }
+      dt { font-weight: 700; margin-top: 0.75rem; }
+      dd { margin-left: 0; overflow-wrap: anywhere; }
+    </style>
+  </head>
+  <body>
+    <h1>Tesla manual token helper</h1>
+    <p><strong>Development only.</strong> Do not share this token.</p>
+    <dl>
+      <dt>DEV_MODE enabled</dt><dd>${config.devMode ? "yes" : "no"}</dd>
+      <dt>Client ID configured</dt><dd>${config.teslaOAuthClientId === null ? "no" : "yes"}</dd>
+      <dt>Redirect URI</dt><dd>${escapeHtml(redirectUri ?? "not configured")}</dd>
+    </dl>
+    ${config.devMode ? `<form method="post">
+      <label for="authorization-code">Authorization code</label>
+      <input id="authorization-code" name="authorization_code" autocomplete="off" required />
+      <p><button type="submit">Exchange code</button></p>
+    </form>` : "<p>Manual token exchange is disabled unless DEV_MODE=true.</p>"}
+    ${errorHtml}
+    ${config.devMode ? resultHtml : ""}
+    <p><a href="../../auth/tesla/start-debug">Back to Tesla OAuth debug</a></p>
+    <script>
+      async function copyFromTextarea(textareaId, button) {
+        const textarea = document.getElementById(textareaId);
+        if (!textarea) return;
+        await navigator.clipboard.writeText(textarea.value);
+        button.textContent = "Copied";
+      }
+      document.querySelectorAll("[data-copy-target]").forEach((button) => {
+        button.addEventListener("click", () => copyFromTextarea(button.getAttribute("data-copy-target"), button));
+      });
+      document.getElementById("show-refresh-token")?.addEventListener("click", (event) => {
+        document.getElementById("refresh-token-wrap").hidden = false;
+        event.currentTarget.hidden = true;
+      });
+    </script>
   </body>
 </html>`);
 }
@@ -2022,6 +2138,7 @@ function writeTeslaStartDebugHtml(
       <a href="../../debug/tesla/oauth-status">Open OAuth status JSON</a>
       <a href="../../debug/tesla/callback-selection">Open callback diagnostics</a>
       <a href="../../debug/config">Open config diagnostics</a>
+      <a href="../../debug/tesla/manual-token-helper">Open manual token helper</a>
     </div>
     <dl>
       <dt>OAuth status path</dt><dd>/debug/tesla/oauth-status</dd>

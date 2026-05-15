@@ -107,6 +107,14 @@ describe("loadConfig", () => {
     expect(config.teslaPublicCallbackUrl).toBe("https://energy-manager.example.com/api/auth/tesla/callback");
   });
 
+  it("accepts a temporary Tesla development token", () => {
+    const config = loadConfig({
+      TESLA_ACCESS_TOKEN: " temporary-token ",
+    });
+
+    expect(config.teslaAccessToken).toBe("temporary-token");
+  });
+
   it("does not use legacy Tesla OAuth environment aliases", () => {
     const config = loadConfig({
       TESLA_OAUTH_CLIENT_ID: "legacy-client-id",

@@ -68,6 +68,36 @@ describe("ProviderAuthService", () => {
     ]);
   });
 
+  it("uses a temporary Tesla token only when no OAuth token is stored", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      access_token: "stored-oauth-token",
+      refresh_token: "stored-refresh-token",
+      expires_in: 3600,
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    })));
+
+    const config = loadConfig({
+      TESLA_CLIENT_ID: "client-id",
+      TESLA_CLIENT_SECRET: "secret",
+      TESLA_ACCESS_TOKEN: "temporary-token",
+    });
+    const service = new ProviderAuthService(config);
+
+    expect(service.getAccessToken("tesla")).toBe("temporary-token");
+    expect(service.getConnectionStatus("tesla").summary).toBe("Using temporary Tesla access token");
+    expect(service.isUsingTemporaryTeslaAccessToken()).toBe(true);
+
+    const start = service.startAuth("tesla", "http://localhost:3000/api/auth/tesla/callback");
+    const state = new URL(start.authorizationUrl ?? "").searchParams.get("state");
+    await service.handleCallback("tesla", "authorization-code", state ?? "");
+
+    expect(service.getAccessToken("tesla")).toBe("stored-oauth-token");
+    expect(service.getConnectionStatus("tesla").summary).toBe("Tesla connected in read-only mode.");
+    expect(service.isUsingTemporaryTeslaAccessToken()).toBe(false);
+  });
+
   it("persists Tesla OAuth tokens server-side across restart", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
       access_token: "stored-access-token",

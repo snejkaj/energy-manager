@@ -5,6 +5,7 @@ export interface AppConfig {
   databaseUrl: string | null;
   tibberAccessToken: string | null;
   tibberHomeId: string | null;
+  teslaAccessToken: string | null;
   teslaVehicleId: string | null;
   teslaRegion: "eu" | "us" | "na";
   tibberOAuthClientId: string | null;
@@ -13,6 +14,7 @@ export interface AppConfig {
   teslaOAuthClientId: string | null;
   teslaOAuthClientSecret: string | null;
   teslaPublicCallbackUrl: string | null;
+  devMode: boolean;
   externalBaseUrl: string | null;
   nabuCasaUrl: string | null;
   homeAssistantExternalUrl: string | null;
@@ -48,6 +50,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     databaseUrl: emptyToNull(env.DATABASE_URL),
     tibberAccessToken: emptyToNull(trimEnv(env.TIBBER_ACCESS_TOKEN)),
     tibberHomeId: emptyToNull(env.TIBBER_HOME_ID),
+    teslaAccessToken: emptyToNull(trimEnv(env.TESLA_ACCESS_TOKEN)),
     teslaVehicleId: emptyToNull(trimEnv(env.TESLA_VEHICLE_ID)),
     teslaRegion: parseTeslaRegion(env.TESLA_REGION, setupNotes),
     tibberOAuthClientId: emptyToNull(env.TIBBER_OAUTH_CLIENT_ID),
@@ -56,6 +59,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     teslaOAuthClientId: emptyToNull(trimEnv(env.TESLA_CLIENT_ID)),
     teslaOAuthClientSecret: emptyToNull(trimEnv(env.TESLA_CLIENT_SECRET)),
     teslaPublicCallbackUrl: emptyToNull(trimEnv(env.TESLA_PUBLIC_CALLBACK_URL)),
+    devMode: parseBoolean(env.DEV_MODE, false, "development mode", setupNotes),
     externalBaseUrl: emptyToNull(trimEnv(env.EXTERNAL_BASE_URL)),
     nabuCasaUrl: emptyToNull(trimEnv(env.NABU_CASA_URL ?? env.HOME_ASSISTANT_NABU_CASA_URL ?? env.NABU_CASA_REMOTE_URL)),
     homeAssistantExternalUrl: emptyToNull(trimEnv(env.HOME_ASSISTANT_EXTERNAL_URL ?? env.HA_EXTERNAL_URL)),
