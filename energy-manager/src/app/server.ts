@@ -2070,6 +2070,8 @@ function writeTeslaStartDebugHtml(
   const developmentLoginReason = developmentLoginAvailable
     ? "Development login URL generated."
     : developmentAuthStart.message;
+  const developmentRedirectUri = createTeslaDevelopmentRedirectUriFromAuthStart(developmentAuthStart);
+  const developmentUsesMyHomeAssistantRedirect = developmentRedirectUri === "https://my.home-assistant.io/redirect/oauth";
   const oauthStatus = createTeslaOAuthStatus();
   const oauthStatusRows = [
     ["lastStep", oauthStatus.lastStep ?? "none"],
@@ -2087,6 +2089,9 @@ function writeTeslaStartDebugHtml(
     ["lastFleetFetchAt", oauthStatus.lastFleetFetchAt ?? "none"],
   ].map(([key, value]) => `<dt>${escapeHtml(key)}</dt><dd>${escapeHtml(value)}</dd>`).join("");
   const escapedAuthorizationUrl = authStart.authorizationUrl === null ? "" : escapeHtml(authStart.authorizationUrl);
+  const productionRedirectDiagnostics = authStart.authorizationUrl === null
+    ? null
+    : createTeslaAuthorizationRedirectDiagnostics(authStart.authorizationUrl);
   const authUrlControls = authStart.authorizationUrl === null
     ? "<p>No authorization URL generated.</p>"
     : `<label for="authorization-url">Generated authorization URL</label>
@@ -2095,7 +2100,8 @@ function writeTeslaStartDebugHtml(
     <p><a id="open-authorization-url" href="${escapedAuthorizationUrl}">Open Tesla login</a></p>
     <dl>
       <dt>Raw link href</dt><dd>${escapedAuthorizationUrl}</dd>
-    </dl>`;
+    </dl>
+    ${renderTeslaRedirectUriDiagnostics("production", productionRedirectDiagnostics)}`;
   logger.info("TeslaAuth", `generated authorizationUrl value=${authStart.authorizationUrl ?? "not generated"}`);
   response.end(`<!doctype html>
 <html lang="en">
@@ -2124,7 +2130,8 @@ function writeTeslaStartDebugHtml(
       <dt>Public callback URL configured</dt><dd>${callbackInfo.publicCallbackConfigured ? "yes" : "no"}</dd>
       <dt>Development login enabled</dt><dd>${developmentLoginAvailable ? "yes" : "no"}</dd>
       <dt>Development login status</dt><dd>${escapeHtml(developmentLoginReason)}</dd>
-      <dt>Development redirect URI</dt><dd>${escapeHtml(createTeslaDevelopmentRedirectUriFromAuthStart(developmentAuthStart))}</dd>
+      <dt>Development redirect URI used</dt><dd>${escapeHtml(developmentRedirectUri)}</dd>
+      <dt>Development redirect URI equals https://my.home-assistant.io/redirect/oauth</dt><dd>${developmentUsesMyHomeAssistantRedirect ? "yes" : "no"}</dd>
       <dt>Development authorization URL</dt><dd>${escapeHtml(developmentAuthStart.authorizationUrl ?? "not generated")}</dd>
       <dt>Ingress callback supported</dt><dd>${callbackInfo.ingressCallbackSupported ? "yes" : "no"}</dd>
       <dt>external_base_url configured</dt><dd>${callbackInfo.candidates.some((candidate) => candidate.source === "external_base_url") ? "yes" : "no"}</dd>
@@ -2239,6 +2246,7 @@ function renderTeslaAuthorizationVariant(variant: TeslaAuthorizationUrlVariant):
     <dl>
       <dt>Raw link href</dt><dd>${escapedUrl}</dd>
     </dl>
+    ${renderTeslaRedirectUriDiagnostics(variant.id, variant.redirectDiagnostics)}
     <h4>Decoded parameters</h4>
     <dl>${parameterRows}</dl>
     <h4>Validation issues</h4>
@@ -2278,7 +2286,13 @@ interface TeslaAuthorizationUrlVariant {
   label: string;
   authorizationUrl: string;
   decodedParameters: Record<string, string>;
+  redirectDiagnostics: TeslaAuthorizationRedirectDiagnostics;
   validation: ReturnType<typeof validateTeslaAuthorizationUrl>;
+}
+
+interface TeslaAuthorizationRedirectDiagnostics {
+  encodedRedirectUri: string;
+  decodedRedirectUri: string;
 }
 
 function createTeslaAuthorizationUrlVariants(authorizationUrl: string | null): TeslaAuthorizationUrlVariant[] {
@@ -2322,8 +2336,48 @@ function createTeslaAuthorizationUrlVariant(
     label,
     authorizationUrl,
     decodedParameters: Object.fromEntries(url.searchParams.entries()),
+    redirectDiagnostics: createTeslaAuthorizationRedirectDiagnostics(authorizationUrl),
     validation: validateTeslaAuthorizationUrl(authorizationUrl),
   };
+}
+
+function createTeslaAuthorizationRedirectDiagnostics(authorizationUrl: string): TeslaAuthorizationRedirectDiagnostics {
+  const url = new URL(authorizationUrl);
+  const encodedRedirectUri = extractEncodedQueryValue(authorizationUrl, "redirect_uri");
+  return {
+    encodedRedirectUri,
+    decodedRedirectUri: url.searchParams.get("redirect_uri") ?? "missing",
+  };
+}
+
+function extractEncodedQueryValue(urlValue: string, key: string): string {
+  const query = urlValue.split("?")[1]?.split("#")[0] ?? "";
+  const encodedKey = encodeURIComponent(key);
+  const match = query
+    .split("&")
+    .find((entry) => entry.startsWith(`${encodedKey}=`));
+
+  return match?.slice(encodedKey.length + 1) ?? "missing";
+}
+
+function renderTeslaRedirectUriDiagnostics(
+  id: string,
+  diagnostics: TeslaAuthorizationRedirectDiagnostics | null,
+): string {
+  if (diagnostics === null) {
+    return "";
+  }
+
+  const safeId = escapeHtml(id);
+  return `<h4>Redirect URI</h4>
+    <p><strong>This exact value must be registered in Tesla Developer Console.</strong></p>
+    <dl>
+      <dt>Encoded redirect_uri value</dt><dd>${escapeHtml(diagnostics.encodedRedirectUri)}</dd>
+      <dt>Decoded redirect_uri value</dt><dd>${escapeHtml(diagnostics.decodedRedirectUri)}</dd>
+    </dl>
+    <label for="redirect-uri-${safeId}">Decoded redirect_uri</label>
+    <textarea id="redirect-uri-${safeId}" rows="3" readonly>${escapeHtml(diagnostics.decodedRedirectUri)}</textarea>
+    <p><button type="button" data-copy-target="redirect-uri-${safeId}">Copy decoded redirect_uri</button></p>`;
 }
 
 function logTeslaAuthStart(authStart: AuthStartResult): void {

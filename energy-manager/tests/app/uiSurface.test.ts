@@ -33,4 +33,13 @@ describe("Tesla UI surface", () => {
     expect(serverSource).toContain("Development only. These links are for obtaining a temporary Tesla authorization code.");
     expect(serverSource).toContain("https://my.home-assistant.io/redirect/oauth");
   });
+
+  it("shows copyable redirect URI diagnostics for Tesla authorization URLs", () => {
+    expect(serverSource).toContain("Encoded redirect_uri value");
+    expect(serverSource).toContain("Decoded redirect_uri value");
+    expect(serverSource).toContain("Copy decoded redirect_uri");
+    expect(serverSource).toContain("This exact value must be registered in Tesla Developer Console.");
+    expect(serverSource).toContain("Development redirect URI used");
+    expect(serverSource).toContain("Development redirect URI equals https://my.home-assistant.io/redirect/oauth");
+  });
 });
