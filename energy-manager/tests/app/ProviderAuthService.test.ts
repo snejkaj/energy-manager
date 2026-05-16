@@ -149,6 +149,30 @@ describe("ProviderAuthService", () => {
     expect(result.accessToken).toBe("cli-access-token");
   });
 
+  it("keeps pending Tesla state after a failed token exchange", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      error: "invalid_grant",
+    }), {
+      status: 400,
+      headers: { "content-type": "application/json" },
+    })));
+
+    const config = loadConfig({
+      TESLA_CLIENT_ID: "client-id",
+      TESLA_CLIENT_SECRET: "secret",
+    });
+    const service = new ProviderAuthService(config);
+    const start = service.startAuth("tesla", "https://my.home-assistant.io/redirect/oauth");
+    const state = new URL(start.authorizationUrl ?? "").searchParams.get("state") ?? "";
+
+    await expect(service.handleCallback("tesla", "bad-code", state)).rejects.toThrow();
+
+    expect(service.getPendingStateDiagnostics("tesla")).toMatchObject({
+      count: 1,
+      latestStateId: state,
+    });
+  });
+
   it("records token exchange 401 without exposing authorization code or secrets", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
       error: "invalid_client",

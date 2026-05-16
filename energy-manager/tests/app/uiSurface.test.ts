@@ -58,4 +58,10 @@ describe("Tesla UI surface", () => {
     expect(serverSource).toContain('name="state"');
     expect(serverSource).toContain("exchangePendingTeslaCode(code, state)");
   });
+
+  it("shows durable OAuth state diagnostics on the Tesla debug page", () => {
+    expect(serverSource).toContain("Active OAuth states count");
+    expect(serverSource).toContain("Latest state id");
+    expect(serverSource).toContain("Latest state age");
+  });
 });

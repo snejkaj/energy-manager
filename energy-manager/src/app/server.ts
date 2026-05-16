@@ -217,7 +217,7 @@ export function startServer(): void {
       const developmentAuthStart = authService.startAuth("tesla", createTeslaDevelopmentRedirectUri(config));
       const ultraMinimalDevelopmentAuthStart = authService.startAuth("tesla", MY_HOME_ASSISTANT_REDIRECT_URI);
       logTeslaAuthStart(authStart);
-      writeTeslaStartDebugHtml(response, diagnostics, authStart, developmentAuthStart, ultraMinimalDevelopmentAuthStart, callbackInfo, createBackHref(path));
+      writeTeslaStartDebugHtml(response, diagnostics, authStart, developmentAuthStart, ultraMinimalDevelopmentAuthStart, authService.getPendingStateDiagnostics("tesla"), callbackInfo, createBackHref(path));
       return;
     }
 
@@ -377,7 +377,7 @@ export function startServer(): void {
       const developmentAuthStart = authService.startAuth("tesla", createTeslaDevelopmentRedirectUri(config));
       const ultraMinimalDevelopmentAuthStart = authService.startAuth("tesla", MY_HOME_ASSISTANT_REDIRECT_URI);
       logTeslaAuthStart(authStart);
-      writeTeslaStartDebugHtml(response, diagnostics, authStart, developmentAuthStart, ultraMinimalDevelopmentAuthStart, callbackInfo, createBackHref(path));
+      writeTeslaStartDebugHtml(response, diagnostics, authStart, developmentAuthStart, ultraMinimalDevelopmentAuthStart, authService.getPendingStateDiagnostics("tesla"), callbackInfo, createBackHref(path));
       return;
     }
 
@@ -480,6 +480,7 @@ export function startServer(): void {
           }
           writeAuthResultHtml(response, 400, `${labelProvider(provider)} connection failed`, [
             `Error: ${error instanceof Error ? error.message : "Connection failed."}`,
+            ...(config.devMode && error instanceof Error && error.stack !== undefined ? [`Stack trace: ${error.stack}`] : []),
             `Redirect URI used: ${provider === "tesla" ? createTeslaCallbackInfo(request, config).callbackUrl ?? "not available" : config.tibberOAuthRedirectUri ?? "not configured"}`,
             ...(provider === "tesla" ? [`Last Tesla OAuth/Fleet step: ${formatTeslaLastErrorSummary()}`] : []),
           ], createBackHref(path), provider === "tesla" ? createTeslaDebugHref(path) : null);
@@ -2051,6 +2052,7 @@ function writeTeslaStartDebugHtml(
   authStart: AuthStartResult,
   developmentAuthStart: AuthStartResult,
   ultraMinimalDevelopmentAuthStart: AuthStartResult,
+  pendingStateDiagnostics: ReturnType<ProviderAuthService["getPendingStateDiagnostics"]>,
   callbackInfo: TeslaCallbackInfo,
   backHref: string,
 ): void {
@@ -2145,6 +2147,9 @@ function writeTeslaStartDebugHtml(
       <dt>Development redirect URI equals https://my.home-assistant.io/redirect/oauth</dt><dd>${developmentUsesMyHomeAssistantRedirect ? "yes" : "no"}</dd>
       <dt>Development authorization URL</dt><dd>${escapeHtml(developmentAuthStart.authorizationUrl ?? "not generated")}</dd>
       <dt>Manual token helper route reachable</dt><dd>yes</dd>
+      <dt>Active OAuth states count</dt><dd>${pendingStateDiagnostics.count}</dd>
+      <dt>Latest state id</dt><dd>${escapeHtml(pendingStateDiagnostics.latestStateId ?? "none")}</dd>
+      <dt>Latest state age</dt><dd>${pendingStateDiagnostics.latestStateAgeSeconds === null ? "none" : `${pendingStateDiagnostics.latestStateAgeSeconds}s`}</dd>
       <dt>Ingress callback supported</dt><dd>${callbackInfo.ingressCallbackSupported ? "yes" : "no"}</dd>
       <dt>external_base_url configured</dt><dd>${callbackInfo.candidates.some((candidate) => candidate.source === "external_base_url") ? "yes" : "no"}</dd>
       <dt>External URL field used</dt><dd>${escapeHtml(callbackSourceLabel(callbackInfo.candidates.find((candidate) => candidate.selected)?.source ?? null))}</dd>

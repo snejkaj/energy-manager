@@ -79,6 +79,12 @@ export interface ManualTeslaTokenExchangeResult {
   expiresIn: number | null;
 }
 
+export interface PendingOAuthStateDiagnostics {
+  count: number;
+  latestStateId: string | null;
+  latestStateAgeSeconds: number | null;
+}
+
 interface PersistedProviderToken {
   provider: AuthProviderId;
   accessToken: string;
@@ -154,6 +160,7 @@ export class ProviderAuthService {
       redirectUri,
     });
     this.persistPendingStates();
+    logger.info("Auth", `${labelProvider(provider)} OAuth state created=${maskState(state)}`);
 
     const authorizationUrl = new URL(oauthConfig.authorizationEndpoint);
     authorizationUrl.searchParams.set("response_type", "code");
@@ -202,8 +209,13 @@ export class ProviderAuthService {
   }
 
   async handleCallback(provider: AuthProviderId, code: string, state: string): Promise<ProviderConnectionStatus> {
-    const pendingState = this.pendingStates.get(state);
+    let pendingState = this.pendingStates.get(state);
+    if (pendingState === undefined) {
+      this.loadPersistedPendingStates();
+      pendingState = this.pendingStates.get(state);
+    }
     if (pendingState === undefined || pendingState.provider !== provider) {
+      logger.error("Auth", `${labelProvider(provider)} OAuth state missing=${maskState(state)}`);
       throw new Error("OAuth state did not match. Please start the connection again.");
     }
     if (provider === "tesla") {
@@ -214,10 +226,9 @@ export class ProviderAuthService {
         region: this.config.teslaRegion,
       });
     }
+    const tokenResponse = await this.exchangeCode(provider, code, pendingState);
     this.pendingStates.delete(state);
     this.persistPendingStates();
-
-    const tokenResponse = await this.exchangeCode(provider, code, pendingState);
     this.storeToken(provider, tokenResponse);
     return this.getConnectionStatus(provider);
   }
@@ -309,6 +320,21 @@ export class ProviderAuthService {
     return [...this.pendingStates.values()].some((pendingState) => pendingState.provider === provider);
   }
 
+  getPendingStateDiagnostics(provider: AuthProviderId): PendingOAuthStateDiagnostics {
+    this.persistPendingStates();
+    const states = [...this.pendingStates.values()]
+      .filter((pendingState) => pendingState.provider === provider)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+    const latest = states[0];
+    return {
+      count: states.length,
+      latestStateId: latest?.state ?? null,
+      latestStateAgeSeconds: latest === undefined
+        ? null
+        : Math.max(0, Math.floor((Date.now() - Date.parse(latest.createdAt)) / 1000)),
+    };
+  }
+
   async exchangeLatestPendingTeslaCode(code: string): Promise<ManualTeslaTokenExchangeResult> {
     const pendingState = [...this.pendingStates.values()]
       .filter((state) => state.provider === "tesla")
@@ -328,7 +354,11 @@ export class ProviderAuthService {
   }
 
   async exchangePendingTeslaCode(code: string, state: string): Promise<ManualTeslaTokenExchangeResult> {
-    const pendingState = this.pendingStates.get(state);
+    let pendingState = this.pendingStates.get(state);
+    if (pendingState === undefined) {
+      this.loadPersistedPendingStates();
+      pendingState = this.pendingStates.get(state);
+    }
     if (pendingState === undefined || pendingState.provider !== "tesla") {
       throw new Error("No matching Tesla PKCE verifier was found for that state. It may be missing or expired; start a new development login first.");
     }
@@ -491,6 +521,7 @@ export class ProviderAuthService {
           continue;
         }
         this.pendingStates.set(pendingState.state, pendingState);
+        logger.info("Auth", `${labelProvider(pendingState.provider)} OAuth state restored=${maskState(pendingState.state)}`);
       }
       this.persistPendingStates();
     } catch (error) {
@@ -619,6 +650,10 @@ function resolvePendingAuthStorePath(): string {
 
 function isPendingStateExpired(pendingState: PendingAuthState): boolean {
   return Date.now() - Date.parse(pendingState.createdAt) > pendingAuthMaxAgeMs;
+}
+
+function maskState(state: string): string {
+  return state.length <= 8 ? state : `${state.slice(0, 4)}...${state.slice(-4)}`;
 }
 
 function restoreRefreshToken(token: PersistedProviderToken, key: string | null): string | null {
