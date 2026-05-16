@@ -215,8 +215,9 @@ export function startServer(): void {
       const diagnostics = authService.getOAuthDiagnostics("tesla", callbackInfo.callbackUrl);
       const authStart = authService.startAuth("tesla", callbackInfo.callbackUrl);
       const developmentAuthStart = authService.startAuth("tesla", createTeslaDevelopmentRedirectUri(config));
+      const ultraMinimalDevelopmentAuthStart = authService.startAuth("tesla", MY_HOME_ASSISTANT_REDIRECT_URI);
       logTeslaAuthStart(authStart);
-      writeTeslaStartDebugHtml(response, diagnostics, authStart, developmentAuthStart, callbackInfo, createBackHref(path));
+      writeTeslaStartDebugHtml(response, diagnostics, authStart, developmentAuthStart, ultraMinimalDevelopmentAuthStart, callbackInfo, createBackHref(path));
       return;
     }
 
@@ -366,8 +367,9 @@ export function startServer(): void {
       const diagnostics = authService.getOAuthDiagnostics("tesla", callbackInfo.callbackUrl);
       const authStart = authService.startAuth("tesla", callbackInfo.callbackUrl);
       const developmentAuthStart = authService.startAuth("tesla", createTeslaDevelopmentRedirectUri(config));
+      const ultraMinimalDevelopmentAuthStart = authService.startAuth("tesla", MY_HOME_ASSISTANT_REDIRECT_URI);
       logTeslaAuthStart(authStart);
-      writeTeslaStartDebugHtml(response, diagnostics, authStart, developmentAuthStart, callbackInfo, createBackHref(path));
+      writeTeslaStartDebugHtml(response, diagnostics, authStart, developmentAuthStart, ultraMinimalDevelopmentAuthStart, callbackInfo, createBackHref(path));
       return;
     }
 
@@ -2044,6 +2046,7 @@ function writeTeslaStartDebugHtml(
   diagnostics: ProviderOAuthDiagnostics,
   authStart: AuthStartResult,
   developmentAuthStart: AuthStartResult,
+  ultraMinimalDevelopmentAuthStart: AuthStartResult,
   callbackInfo: TeslaCallbackInfo,
   backHref: string,
 ): void {
@@ -2066,6 +2069,10 @@ function writeTeslaStartDebugHtml(
   const variantCards = variants.length === 0
     ? "<p>No development variants available. Configure Tesla client credentials first.</p>"
     : variants.map(renderTeslaAuthorizationVariant).join("");
+  const ultraMinimalVariant = createUltraMinimalTeslaAuthorizationUrlVariant(ultraMinimalDevelopmentAuthStart.authorizationUrl);
+  const ultraMinimalControls = ultraMinimalVariant === null
+    ? "<p>No ultra minimal development URL generated. Configure Tesla client credentials first.</p>"
+    : renderUltraMinimalTeslaAuthorizationVariant(ultraMinimalVariant);
   const developmentLoginAvailable = developmentAuthStart.authorizationUrl !== null;
   const developmentLoginReason = developmentLoginAvailable
     ? "Development login URL generated."
@@ -2181,6 +2188,9 @@ function writeTeslaStartDebugHtml(
     <h2>Authorization URL validation</h2>
     <ul>${validationErrors}</ul>
     ${authUrlControls}
+    <h2>Ultra minimal development login</h2>
+    <p>This URL uses only the OAuth fields Tesla requires and always uses <code>${MY_HOME_ASSISTANT_REDIRECT_URI}</code>.</p>
+    ${ultraMinimalControls}
     <h2>Development Tesla login links</h2>
     <p><strong>Development only. These links are for obtaining a temporary Tesla authorization code.</strong></p>
     ${variantCards}
@@ -2255,7 +2265,7 @@ function renderTeslaAuthorizationVariant(variant: TeslaAuthorizationUrlVariant):
 }
 
 function createTeslaDevelopmentRedirectUri(config: AppConfig): string {
-  return config.teslaDevRedirectUri ?? "https://my.home-assistant.io/redirect/oauth";
+  return config.teslaDevRedirectUri ?? MY_HOME_ASSISTANT_REDIRECT_URI;
 }
 
 function createTeslaDevelopmentRedirectUriFromAuthStart(authStart: AuthStartResult): string {
@@ -2289,6 +2299,8 @@ interface TeslaAuthorizationUrlVariant {
   redirectDiagnostics: TeslaAuthorizationRedirectDiagnostics;
   validation: ReturnType<typeof validateTeslaAuthorizationUrl>;
 }
+
+const MY_HOME_ASSISTANT_REDIRECT_URI = "https://my.home-assistant.io/redirect/oauth";
 
 interface TeslaAuthorizationRedirectDiagnostics {
   encodedRedirectUri: string;
@@ -2339,6 +2351,63 @@ function createTeslaAuthorizationUrlVariant(
     redirectDiagnostics: createTeslaAuthorizationRedirectDiagnostics(authorizationUrl),
     validation: validateTeslaAuthorizationUrl(authorizationUrl),
   };
+}
+
+function createUltraMinimalTeslaAuthorizationUrlVariant(
+  authorizationUrl: string | null,
+): TeslaAuthorizationUrlVariant | null {
+  if (authorizationUrl === null) {
+    return null;
+  }
+
+  const source = new URL(authorizationUrl);
+  const requiredParameterNames = [
+    "response_type",
+    "client_id",
+    "redirect_uri",
+    "scope",
+    "state",
+    "code_challenge",
+    "code_challenge_method",
+  ];
+  const parameters = Object.fromEntries(
+    requiredParameterNames.map((key) => [key, source.searchParams.get(key) ?? ""]),
+  );
+  parameters.redirect_uri = MY_HOME_ASSISTANT_REDIRECT_URI;
+  const ultraMinimalUrl = `${source.origin}${source.pathname}?${serializeRfc3986Query(parameters)}`;
+
+  return {
+    id: "ultra-minimal",
+    label: "Ultra minimal development login",
+    authorizationUrl: ultraMinimalUrl,
+    decodedParameters: parameters,
+    redirectDiagnostics: createTeslaAuthorizationRedirectDiagnostics(ultraMinimalUrl),
+    validation: validateTeslaAuthorizationUrl(ultraMinimalUrl),
+  };
+}
+
+function renderUltraMinimalTeslaAuthorizationVariant(variant: TeslaAuthorizationUrlVariant): string {
+  const escapedUrl = escapeHtml(variant.authorizationUrl);
+  return `<section class="variant">
+    <h3>${escapeHtml(variant.label)}</h3>
+    <label for="authorization-url-${escapeHtml(variant.id)}">Exact generated URL</label>
+    <textarea id="authorization-url-${escapeHtml(variant.id)}" rows="7" readonly>${escapedUrl}</textarea>
+    <div class="actions">
+      <button type="button" data-copy-target="authorization-url-${escapeHtml(variant.id)}">Copy ultra minimal URL</button>
+      <a href="${escapedUrl}" data-oauth-variant="${escapeHtml(variant.id)}">Open ultra minimal login</a>
+    </div>
+    ${renderTeslaRedirectUriDiagnostics(variant.id, variant.redirectDiagnostics)}
+  </section>`;
+}
+
+function serializeRfc3986Query(parameters: Record<string, string>): string {
+  return Object.entries(parameters)
+    .map(([key, value]) => `${encodeRfc3986(key)}=${encodeRfc3986(value)}`)
+    .join("&");
+}
+
+function encodeRfc3986(value: string): string {
+  return encodeURIComponent(value).replace(/[!'()*]/g, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
 }
 
 function createTeslaAuthorizationRedirectDiagnostics(authorizationUrl: string): TeslaAuthorizationRedirectDiagnostics {

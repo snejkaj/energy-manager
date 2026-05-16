@@ -42,4 +42,11 @@ describe("Tesla UI surface", () => {
     expect(serverSource).toContain("Development redirect URI used");
     expect(serverSource).toContain("Development redirect URI equals https://my.home-assistant.io/redirect/oauth");
   });
+
+  it("keeps an explicit ultra minimal Tesla development login URL", () => {
+    expect(serverSource).toContain("Ultra minimal development login");
+    expect(serverSource).toContain("Open ultra minimal login");
+    expect(serverSource).toContain("serializeRfc3986Query");
+    expect(serverSource).toContain('parameters.redirect_uri = MY_HOME_ASSISTANT_REDIRECT_URI');
+  });
 });
