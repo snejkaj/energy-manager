@@ -222,33 +222,41 @@ export function startServer(): void {
     }
 
     if (request.method === "GET" && path === "/debug/tesla/manual-token-helper") {
-      writeTeslaManualTokenHelperHtml(response, config, createTeslaDevelopmentRedirectUri(config), null, null);
+      try {
+        writeTeslaManualTokenHelperHtml(response, config, null, null);
+      } catch (error: unknown) {
+        writePlainHtmlError(response, config, error);
+      }
       return;
     }
 
-    if (request.method === "POST" && path === "/debug/tesla/manual-token-helper") {
+    if (request.method === "POST" && path === "/debug/tesla/manual-token-helper/exchange") {
       void readRequestBody(request)
         .then(async (body) => {
-          if (!config.devMode) {
-            writeTeslaManualTokenHelperHtml(response, config, createTeslaDevelopmentRedirectUri(config), null, "Manual token helper is disabled. Set DEV_MODE=true to use it.");
-            return;
+          try {
+            if (!config.devMode) {
+              writeTeslaManualTokenHelperHtml(response, config, null, "Manual token helper is disabled. Set DEV_MODE=true to use it.");
+              return;
+            }
+            const form = new URLSearchParams(body);
+            const code = form.get("authorization_code")?.trim() ?? "";
+            const state = form.get("state")?.trim() ?? "";
+            if (code === "") {
+              writeTeslaManualTokenHelperHtml(response, config, null, "Authorization code is required.");
+              return;
+            }
+            if (state === "") {
+              writeTeslaManualTokenHelperHtml(response, config, null, "State is required.");
+              return;
+            }
+            const tokenResult = await authService.exchangePendingTeslaCode(code, state);
+            writeTeslaManualTokenHelperHtml(response, config, tokenResult, null);
+          } catch (error: unknown) {
+            writeTeslaManualTokenHelperHtml(response, config, null, formatManualHelperError(config, error));
           }
-          const code = new URLSearchParams(body).get("authorization_code")?.trim() ?? "";
-          if (code === "") {
-            writeTeslaManualTokenHelperHtml(response, config, createTeslaDevelopmentRedirectUri(config), null, "Authorization code is required.");
-            return;
-          }
-          const tokenResult = await authService.exchangeLatestPendingTeslaCode(code);
-          writeTeslaManualTokenHelperHtml(response, config, createTeslaDevelopmentRedirectUri(config), tokenResult, null);
         })
         .catch((error: unknown) => {
-          writeTeslaManualTokenHelperHtml(
-            response,
-            config,
-            createTeslaDevelopmentRedirectUri(config),
-            null,
-            error instanceof Error ? error.message : "Token exchange failed.",
-          );
+          writeTeslaManualTokenHelperHtml(response, config, null, formatManualHelperError(config, error));
         });
       return;
     }
@@ -1308,6 +1316,7 @@ function logIntegrationSetupStatus(config: AppConfig): void {
   logger.info("TeslaConfig", `tesla_public_callback_url preview=${config.teslaPublicCallbackUrl === null ? "not configured" : maskUrlPreview(config.teslaPublicCallbackUrl)}`);
   logger.info("TeslaConfig", `temporary development token configured=${config.teslaDevAccessToken !== null ? "yes" : "no"} length=${config.teslaDevAccessToken?.length ?? 0}`);
   logger.info("TeslaConfig", `dev mode=${config.devMode ? "yes" : "no"}`);
+  logger.info("TeslaConfig", "manual token helper enabled");
 }
 
 function createConfigDiagnostics(config: AppConfig, request: IncomingMessage) {
@@ -1333,6 +1342,7 @@ function createConfigDiagnostics(config: AppConfig, request: IncomingMessage) {
     teslaPublicCallbackUrlConfigured: config.teslaPublicCallbackUrl !== null,
     teslaPublicCallbackUrl: config.teslaPublicCallbackUrl === null ? null : maskUrl(config.teslaPublicCallbackUrl),
     teslaDevRedirectUriConfigured: config.teslaDevRedirectUri !== null,
+    manualTokenHelperRouteReachable: true,
     teslaDevRedirectUri: maskUrl(createTeslaDevelopmentRedirectUri(config)),
     externalBaseUrlConfigured: config.externalBaseUrl !== null,
     externalBaseUrl: config.externalBaseUrl === null ? null : maskUrl(config.externalBaseUrl),
@@ -1624,27 +1634,20 @@ function writeAuthResultHtml(
 function writeTeslaManualTokenHelperHtml(
   response: ServerResponse,
   config: AppConfig,
-  redirectUri: string | null,
   tokenResult: { accessToken: string; refreshToken: string | null; expiresIn: number | null } | null,
   error: string | null,
 ): void {
-  response.statusCode = config.devMode ? 200 : 403;
+  response.statusCode = 200;
   response.setHeader("content-type", "text/html; charset=utf-8");
   const resultHtml = tokenResult === null
     ? ""
     : `<section>
       <h2>Token exchange result</h2>
       <p><strong>Do not share this token.</strong></p>
-      <label for="access-token">Access token</label>
-      <textarea id="access-token" rows="6" readonly>${escapeHtml(tokenResult.accessToken)}</textarea>
-      <p><button type="button" data-copy-target="access-token">Copy access token</button></p>
+      <p>Access token received: ${config.devMode ? "yes" : "hidden unless DEV_MODE=true"}</p>
+      ${config.devMode ? `<label for="access-token">Access token</label>
+      <textarea id="access-token" rows="6" readonly>${escapeHtml(tokenResult.accessToken)}</textarea>` : ""}
       <p>expires_in: ${tokenResult.expiresIn === null ? "not provided" : tokenResult.expiresIn}</p>
-      ${tokenResult.refreshToken === null ? "" : `<button type="button" id="show-refresh-token">Show refresh token</button>
-      <div id="refresh-token-wrap" hidden>
-        <label for="refresh-token">Refresh token</label>
-        <textarea id="refresh-token" rows="6" readonly>${escapeHtml(tokenResult.refreshToken)}</textarea>
-        <p><button type="button" data-copy-target="refresh-token">Copy refresh token</button></p>
-      </div>`}
     </section>`;
   const errorHtml = error === null ? "" : `<p role="alert" style="color:#b91c1c">${escapeHtml(error)}</p>`;
   response.end(`<!doctype html>
@@ -1655,44 +1658,45 @@ function writeTeslaManualTokenHelperHtml(
     <title>Tesla manual token helper</title>
     <style>
       body { font-family: system-ui, sans-serif; line-height: 1.4; margin: 2rem; }
-      textarea, input { box-sizing: border-box; width: 100%; max-width: 720px; }
+      textarea { box-sizing: border-box; width: 100%; max-width: 720px; }
       textarea { font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; }
       button { cursor: pointer; padding: 0.65rem 0.9rem; }
-      dt { font-weight: 700; margin-top: 0.75rem; }
-      dd { margin-left: 0; overflow-wrap: anywhere; }
     </style>
   </head>
   <body>
     <h1>Tesla manual token helper</h1>
     <p><strong>Development only.</strong> Do not share this token.</p>
-    <dl>
-      <dt>DEV_MODE enabled</dt><dd>${config.devMode ? "yes" : "no"}</dd>
-      <dt>Client ID configured</dt><dd>${config.teslaOAuthClientId === null ? "no" : "yes"}</dd>
-      <dt>Redirect URI</dt><dd>${escapeHtml(redirectUri ?? "not configured")}</dd>
-    </dl>
-    ${config.devMode ? `<form method="post">
+    <form method="post" action="./manual-token-helper/exchange">
       <label for="authorization-code">Authorization code</label>
-      <input id="authorization-code" name="authorization_code" autocomplete="off" required />
+      <textarea id="authorization-code" name="authorization_code" rows="4"></textarea>
+      <label for="state">State</label>
+      <textarea id="state" name="state" rows="3"></textarea>
       <p><button type="submit">Exchange code</button></p>
-    </form>` : "<p>Manual token exchange is disabled unless DEV_MODE=true.</p>"}
+    </form>
     ${errorHtml}
-    ${config.devMode ? resultHtml : ""}
-    <p><a href="../../auth/tesla/start-debug">Back to Tesla OAuth debug</a></p>
-    <script>
-      async function copyFromTextarea(textareaId, button) {
-        const textarea = document.getElementById(textareaId);
-        if (!textarea) return;
-        await navigator.clipboard.writeText(textarea.value);
-        button.textContent = "Copied";
-      }
-      document.querySelectorAll("[data-copy-target]").forEach((button) => {
-        button.addEventListener("click", () => copyFromTextarea(button.getAttribute("data-copy-target"), button));
-      });
-      document.getElementById("show-refresh-token")?.addEventListener("click", (event) => {
-        document.getElementById("refresh-token-wrap").hidden = false;
-        event.currentTarget.hidden = true;
-      });
-    </script>
+    ${resultHtml}
+    <p><a href="../../../auth/tesla/start-debug">Back to Tesla OAuth debug</a></p>
+  </body>
+</html>`);
+}
+
+function formatManualHelperError(config: AppConfig, error: unknown): string {
+  if (config.devMode && error instanceof Error) {
+    return error.stack ?? error.message;
+  }
+
+  return error instanceof Error ? error.message : "Token exchange failed.";
+}
+
+function writePlainHtmlError(response: ServerResponse, config: AppConfig, error: unknown): void {
+  response.statusCode = 500;
+  response.setHeader("content-type", "text/html; charset=utf-8");
+  response.end(`<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Manual token helper error</title></head>
+  <body>
+    <h1>Manual token helper error</h1>
+    <pre>${escapeHtml(formatManualHelperError(config, error))}</pre>
   </body>
 </html>`);
 }
@@ -2140,6 +2144,7 @@ function writeTeslaStartDebugHtml(
       <dt>Development redirect URI used</dt><dd>${escapeHtml(developmentRedirectUri)}</dd>
       <dt>Development redirect URI equals https://my.home-assistant.io/redirect/oauth</dt><dd>${developmentUsesMyHomeAssistantRedirect ? "yes" : "no"}</dd>
       <dt>Development authorization URL</dt><dd>${escapeHtml(developmentAuthStart.authorizationUrl ?? "not generated")}</dd>
+      <dt>Manual token helper route reachable</dt><dd>yes</dd>
       <dt>Ingress callback supported</dt><dd>${callbackInfo.ingressCallbackSupported ? "yes" : "no"}</dd>
       <dt>external_base_url configured</dt><dd>${callbackInfo.candidates.some((candidate) => candidate.source === "external_base_url") ? "yes" : "no"}</dd>
       <dt>External URL field used</dt><dd>${escapeHtml(callbackSourceLabel(callbackInfo.candidates.find((candidate) => candidate.selected)?.source ?? null))}</dd>

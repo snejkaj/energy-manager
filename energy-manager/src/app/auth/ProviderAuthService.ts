@@ -316,6 +316,21 @@ export class ProviderAuthService {
     };
   }
 
+  async exchangePendingTeslaCode(code: string, state: string): Promise<ManualTeslaTokenExchangeResult> {
+    const pendingState = this.pendingStates.get(state);
+    if (pendingState === undefined || pendingState.provider !== "tesla") {
+      throw new Error("No matching Tesla PKCE verifier was found for that state. Start a new development login first.");
+    }
+
+    const tokenResponse = await this.exchangeCode("tesla", code, pendingState);
+    this.pendingStates.delete(state);
+    return {
+      accessToken: tokenResponse.access_token,
+      refreshToken: tokenResponse.refresh_token ?? null,
+      expiresIn: tokenResponse.expires_in ?? null,
+    };
+  }
+
   private async exchangeCode(
     provider: AuthProviderId,
     code: string,

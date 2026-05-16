@@ -26,6 +26,8 @@ describe("Tesla UI surface", () => {
     expect(serverSource).toContain('path === "/api/connections"');
     expect(serverSource).toContain('path === "/api/auth/tesla/start"');
     expect(serverSource).toContain('path === "/api/auth/tesla/disconnect"');
+    expect(serverSource).toContain('path === "/debug/tesla/manual-token-helper"');
+    expect(serverSource).toContain('path === "/debug/tesla/manual-token-helper/exchange"');
   });
 
   it("keeps development Tesla login variants visible on the debug page", () => {
@@ -48,5 +50,12 @@ describe("Tesla UI surface", () => {
     expect(serverSource).toContain("Open ultra minimal login");
     expect(serverSource).toContain("serializeRfc3986Query");
     expect(serverSource).toContain('parameters.redirect_uri = MY_HOME_ASSISTANT_REDIRECT_URI');
+  });
+
+  it("keeps the manual token helper plain and state-based", () => {
+    expect(serverSource).toContain("Manual token helper route reachable");
+    expect(serverSource).toContain('name="authorization_code"');
+    expect(serverSource).toContain('name="state"');
+    expect(serverSource).toContain("exchangePendingTeslaCode(code, state)");
   });
 });
