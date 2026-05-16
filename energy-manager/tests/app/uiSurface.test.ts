@@ -64,4 +64,9 @@ describe("Tesla UI surface", () => {
     expect(serverSource).toContain("Latest state id");
     expect(serverSource).toContain("Latest state age");
   });
+
+  it("explains that manual Tesla dev exchange does not depend on My Home Assistant state validation", () => {
+    expect(serverSource).toContain("does not depend on My Home Assistant completing verification");
+    expect(serverSource).toContain('npm run tesla:exchange-code -- --code "..." --state "..."');
+  });
 });

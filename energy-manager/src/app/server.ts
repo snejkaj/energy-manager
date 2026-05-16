@@ -1667,6 +1667,7 @@ function writeTeslaManualTokenHelperHtml(
   <body>
     <h1>Tesla manual token helper</h1>
     <p><strong>Development only.</strong> Do not share this token.</p>
+    <p>If Tesla redirects to My Home Assistant and that page shows an invalid state error, copy the <code>code</code> and <code>state</code> values from the browser URL and paste them here. This helper uses the add-on's persisted PKCE verifier and does not depend on My Home Assistant completing verification.</p>
     <form method="post" action="./manual-token-helper/exchange">
       <label for="authorization-code">Authorization code</label>
       <textarea id="authorization-code" name="authorization_code" rows="4"></textarea>
@@ -2200,6 +2201,9 @@ function writeTeslaStartDebugHtml(
     ${authUrlControls}
     <h2>Ultra minimal development login</h2>
     <p>This URL uses only the OAuth fields Tesla requires and always uses <code>${MY_HOME_ASSISTANT_REDIRECT_URI}</code>.</p>
+    <p>If My Home Assistant later shows an invalid state error, use the returned <code>code</code> and <code>state</code> with the manual helper or the CLI command. Development token exchange does not depend on My Home Assistant validating that callback.</p>
+    <p><code>npm run tesla:exchange-code -- --code "..." --state "..."</code></p>
+    <p><a href="../../debug/tesla/manual-token-helper">Open manual token helper</a></p>
     ${ultraMinimalControls}
     <h2>Development Tesla login links</h2>
     <p><strong>Development only. These links are for obtaining a temporary Tesla authorization code.</strong></p>

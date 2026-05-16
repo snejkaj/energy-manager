@@ -223,6 +223,14 @@ The UI labels this as `Using temporary Tesla development token`. OAuth remains t
 
 For local OAuth troubleshooting only, `dev_mode: true` enables `/debug/tesla/manual-token-helper`. It can exchange an authorization code from an already-started Tesla login and shows tokens only on that development-only page. Keep `dev_mode` off outside local testing.
 
+For the development login flow, My Home Assistant may show its own `invalid state` error after Tesla redirects back. That does not block local testing. Copy the `code` and `state` values from the returned browser URL and exchange them with either the helper page or:
+
+```bash
+npm run tesla:exchange-code -- --code "..." --state "..."
+```
+
+The add-on stores the matching PKCE verifier itself, so this manual exchange does not depend on My Home Assistant finishing its redirect verification.
+
 The Tesla OAuth debug page also shows **Development Tesla login links**. Those links use `tesla_dev_redirect_uri` when configured, otherwise they fall back to `https://my.home-assistant.io/redirect/oauth`, so a developer can obtain a temporary authorization code while the production public callback is unresolved.
 
 Most users do not need `tibber_home_id`.
