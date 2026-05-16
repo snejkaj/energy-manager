@@ -12,12 +12,15 @@ import { getTeslaOAuthFleetLastError } from "../../src/providers/tesla/TeslaDiag
 
 describe("ProviderAuthService", () => {
   beforeEach(() => {
-    process.env.PROVIDER_TOKEN_STORE_PATH = join(mkdtempSync(join(tmpdir(), "energy-manager-auth-")), "tokens.json");
+    const authDir = mkdtempSync(join(tmpdir(), "energy-manager-auth-"));
+    process.env.PROVIDER_TOKEN_STORE_PATH = join(authDir, "tokens.json");
+    process.env.PROVIDER_PENDING_AUTH_STORE_PATH = join(authDir, "pending.json");
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
     delete process.env.PROVIDER_TOKEN_STORE_PATH;
+    delete process.env.PROVIDER_PENDING_AUTH_STORE_PATH;
   });
 
   it("starts Tibber OAuth without exposing secrets", () => {
@@ -121,6 +124,29 @@ describe("ProviderAuthService", () => {
 
     expect(reloadedService.getConnectionStatus("tesla").connected).toBe(true);
     expect(reloadedService.getAccessToken("tesla")).toBe("stored-access-token");
+  });
+
+  it("persists pending Tesla PKCE state for CLI-style exchange", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      access_token: "cli-access-token",
+      expires_in: 3600,
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    })));
+
+    const config = loadConfig({
+      TESLA_CLIENT_ID: "client-id",
+      TESLA_CLIENT_SECRET: "secret",
+    });
+    const service = new ProviderAuthService(config);
+    const start = service.startAuth("tesla", "https://my.home-assistant.io/redirect/oauth");
+    const state = new URL(start.authorizationUrl ?? "").searchParams.get("state") ?? "";
+    const reloadedService = new ProviderAuthService(config);
+
+    const result = await reloadedService.exchangePendingTeslaCode("authorization-code", state);
+
+    expect(result.accessToken).toBe("cli-access-token");
   });
 
   it("records token exchange 401 without exposing authorization code or secrets", async () => {

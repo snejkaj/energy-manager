@@ -92,13 +92,21 @@ interface PersistedTokenStore {
   tokens: Partial<Record<AuthProviderId, PersistedProviderToken>>;
 }
 
+interface PersistedPendingAuthStore {
+  states: PendingAuthState[];
+}
+
+const pendingAuthMaxAgeMs = 15 * 60 * 1000;
+
 export class ProviderAuthService {
   private readonly tokens = new Map<AuthProviderId, StoredProviderToken>();
   private readonly pendingStates = new Map<string, PendingAuthState>();
   private readonly tokenStorePath = resolveTokenStorePath();
+  private readonly pendingAuthStorePath = resolvePendingAuthStorePath();
 
   constructor(private readonly config: AppConfig) {
     this.loadPersistedTokens();
+    this.loadPersistedPendingStates();
   }
 
   startAuth(provider: AuthProviderId, redirectUriOverride?: string | null): AuthStartResult {
@@ -145,6 +153,7 @@ export class ProviderAuthService {
       codeVerifier: pkce?.verifier ?? null,
       redirectUri,
     });
+    this.persistPendingStates();
 
     const authorizationUrl = new URL(oauthConfig.authorizationEndpoint);
     authorizationUrl.searchParams.set("response_type", "code");
@@ -206,6 +215,7 @@ export class ProviderAuthService {
       });
     }
     this.pendingStates.delete(state);
+    this.persistPendingStates();
 
     const tokenResponse = await this.exchangeCode(provider, code, pendingState);
     this.storeToken(provider, tokenResponse);
@@ -309,6 +319,7 @@ export class ProviderAuthService {
 
     const tokenResponse = await this.exchangeCode("tesla", code, pendingState);
     this.pendingStates.delete(pendingState.state);
+    this.persistPendingStates();
     return {
       accessToken: tokenResponse.access_token,
       refreshToken: tokenResponse.refresh_token ?? null,
@@ -319,11 +330,12 @@ export class ProviderAuthService {
   async exchangePendingTeslaCode(code: string, state: string): Promise<ManualTeslaTokenExchangeResult> {
     const pendingState = this.pendingStates.get(state);
     if (pendingState === undefined || pendingState.provider !== "tesla") {
-      throw new Error("No matching Tesla PKCE verifier was found for that state. Start a new development login first.");
+      throw new Error("No matching Tesla PKCE verifier was found for that state. It may be missing or expired; start a new development login first.");
     }
 
     const tokenResponse = await this.exchangeCode("tesla", code, pendingState);
     this.pendingStates.delete(state);
+    this.persistPendingStates();
     return {
       accessToken: tokenResponse.access_token,
       refreshToken: tokenResponse.refresh_token ?? null,
@@ -466,6 +478,40 @@ export class ProviderAuthService {
       logger.error("Auth", `Provider token store could not be written: ${error instanceof Error ? error.message : "Unknown error"}`);
     }
   }
+
+  private loadPersistedPendingStates(): void {
+    if (!existsSync(this.pendingAuthStorePath)) {
+      return;
+    }
+
+    try {
+      const persisted = JSON.parse(readFileSync(this.pendingAuthStorePath, "utf8")) as PersistedPendingAuthStore;
+      for (const pendingState of persisted.states ?? []) {
+        if (isPendingStateExpired(pendingState)) {
+          continue;
+        }
+        this.pendingStates.set(pendingState.state, pendingState);
+      }
+      this.persistPendingStates();
+    } catch (error) {
+      logger.error("Auth", `Pending OAuth state store could not be loaded: ${error instanceof Error ? error.message : "Unknown error"}`);
+    }
+  }
+
+  private persistPendingStates(): void {
+    const states = [...this.pendingStates.values()].filter((pendingState) => !isPendingStateExpired(pendingState));
+    this.pendingStates.clear();
+    for (const pendingState of states) {
+      this.pendingStates.set(pendingState.state, pendingState);
+    }
+
+    try {
+      mkdirSync(dirname(this.pendingAuthStorePath), { recursive: true, mode: 0o700 });
+      writeFileSync(this.pendingAuthStorePath, `${JSON.stringify({ states }, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+    } catch (error) {
+      logger.error("Auth", `Pending OAuth state store could not be written: ${error instanceof Error ? error.message : "Unknown error"}`);
+    }
+  }
 }
 
 function getOAuthConfig(config: AppConfig, provider: AuthProviderId) {
@@ -558,6 +604,21 @@ function resolveTokenStorePath(): string {
   return existsSync("/data")
     ? "/data/provider_tokens.json"
     : join(process.cwd(), "data", "provider_tokens.json");
+}
+
+function resolvePendingAuthStorePath(): string {
+  const configuredPath = process.env.PROVIDER_PENDING_AUTH_STORE_PATH?.trim();
+  if (configuredPath !== undefined && configuredPath !== "") {
+    return configuredPath;
+  }
+
+  return existsSync("/data")
+    ? "/data/provider_pending_auth.json"
+    : join(process.cwd(), "data", "provider_pending_auth.json");
+}
+
+function isPendingStateExpired(pendingState: PendingAuthState): boolean {
+  return Date.now() - Date.parse(pendingState.createdAt) > pendingAuthMaxAgeMs;
 }
 
 function restoreRefreshToken(token: PersistedProviderToken, key: string | null): string | null {
