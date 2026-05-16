@@ -6,19 +6,20 @@ import { loadConfig } from "../config.js";
 applyHomeAssistantOptionsToEnv();
 
 const args = parseArgs(process.argv.slice(2));
-if (args.code === null || (args.state === null && args.codeVerifier === null)) {
-  fail('Usage: npm run tesla:exchange-code -- --code "..." (--code-verifier "..." | --state "...")');
+const codeVerifier = args.codeVerifier ?? normalize(process.env.TESLA_CODE_VERIFIER);
+if (args.code === null || (args.state === null && codeVerifier === null)) {
+  fail('Usage: npm run tesla:exchange-code -- --code "..." [--code-verifier "..." | --state "..."]\nYou may also set TESLA_CODE_VERIFIER instead of passing --code-verifier.');
 }
 
 const config = loadConfig();
 const authService = new ProviderAuthService(config);
 
 try {
-  const result = args.codeVerifier === null
+  const result = codeVerifier === null
     ? await authService.exchangePendingTeslaCode(args.code, args.state ?? "")
     : await authService.exchangeTeslaCodeWithVerifier(
         args.code,
-        args.codeVerifier,
+        codeVerifier,
         args.redirectUri ?? config.teslaDevRedirectUri ?? "https://my.home-assistant.io/redirect/oauth",
       );
   if (config.devMode) {
