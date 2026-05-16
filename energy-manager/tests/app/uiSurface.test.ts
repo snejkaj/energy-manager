@@ -69,4 +69,11 @@ describe("Tesla UI surface", () => {
     expect(serverSource).toContain("does not depend on My Home Assistant completing verification");
     expect(serverSource).toContain('npm run tesla:exchange-code -- --code "..." --state "..."');
   });
+
+  it("shows development verifier values only for manual exchange", () => {
+    expect(serverSource).toContain("Development exchange values");
+    expect(serverSource).toContain("Development only. Do not share code_verifier.");
+    expect(serverSource).toContain("Hidden unless DEV_MODE=true");
+    expect(serverSource).toContain("Copy code_verifier");
+  });
 });

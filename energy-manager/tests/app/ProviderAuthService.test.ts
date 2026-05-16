@@ -149,6 +149,33 @@ describe("ProviderAuthService", () => {
     expect(result.accessToken).toBe("cli-access-token");
   });
 
+  it("exchanges a Tesla code with a directly supplied verifier", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      access_token: "direct-access-token",
+      expires_in: 3600,
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const service = new ProviderAuthService(loadConfig({
+      TESLA_CLIENT_ID: "client-id",
+      TESLA_CLIENT_SECRET: "secret",
+    }));
+
+    const result = await service.exchangeTeslaCodeWithVerifier(
+      "authorization-code",
+      "portable-code-verifier",
+      "https://my.home-assistant.io/redirect/oauth",
+    );
+
+    expect(result.accessToken).toBe("direct-access-token");
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [, requestInit] = fetchMock.mock.calls[0] as unknown as [unknown, RequestInit];
+    expect(String(requestInit.body)).toContain("code_verifier=portable-code-verifier");
+  });
+
   it("keeps pending Tesla state after a failed token exchange", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
       error: "invalid_grant",

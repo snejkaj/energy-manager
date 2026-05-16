@@ -217,7 +217,7 @@ export function startServer(): void {
       const developmentAuthStart = authService.startAuth("tesla", createTeslaDevelopmentRedirectUri(config));
       const ultraMinimalDevelopmentAuthStart = authService.startAuth("tesla", MY_HOME_ASSISTANT_REDIRECT_URI);
       logTeslaAuthStart(authStart);
-      writeTeslaStartDebugHtml(response, diagnostics, authStart, developmentAuthStart, ultraMinimalDevelopmentAuthStart, authService.getPendingStateDiagnostics("tesla"), callbackInfo, createBackHref(path));
+      writeTeslaStartDebugHtml(response, config, authService, diagnostics, authStart, developmentAuthStart, ultraMinimalDevelopmentAuthStart, authService.getPendingStateDiagnostics("tesla"), callbackInfo, createBackHref(path));
       return;
     }
 
@@ -377,7 +377,7 @@ export function startServer(): void {
       const developmentAuthStart = authService.startAuth("tesla", createTeslaDevelopmentRedirectUri(config));
       const ultraMinimalDevelopmentAuthStart = authService.startAuth("tesla", MY_HOME_ASSISTANT_REDIRECT_URI);
       logTeslaAuthStart(authStart);
-      writeTeslaStartDebugHtml(response, diagnostics, authStart, developmentAuthStart, ultraMinimalDevelopmentAuthStart, authService.getPendingStateDiagnostics("tesla"), callbackInfo, createBackHref(path));
+      writeTeslaStartDebugHtml(response, config, authService, diagnostics, authStart, developmentAuthStart, ultraMinimalDevelopmentAuthStart, authService.getPendingStateDiagnostics("tesla"), callbackInfo, createBackHref(path));
       return;
     }
 
@@ -2049,6 +2049,8 @@ function firstHeader(request: IncomingMessage, name: string): string | null {
 
 function writeTeslaStartDebugHtml(
   response: ServerResponse,
+  config: AppConfig,
+  authService: ProviderAuthService,
   diagnostics: ProviderOAuthDiagnostics,
   authStart: AuthStartResult,
   developmentAuthStart: AuthStartResult,
@@ -2075,11 +2077,11 @@ function writeTeslaStartDebugHtml(
   const variants = createTeslaAuthorizationUrlVariants(developmentAuthStart.authorizationUrl);
   const variantCards = variants.length === 0
     ? "<p>No development variants available. Configure Tesla client credentials first.</p>"
-    : variants.map(renderTeslaAuthorizationVariant).join("");
+    : variants.map((variant) => renderTeslaAuthorizationVariant(variant, config.devMode, authService)).join("");
   const ultraMinimalVariant = createUltraMinimalTeslaAuthorizationUrlVariant(ultraMinimalDevelopmentAuthStart.authorizationUrl);
   const ultraMinimalControls = ultraMinimalVariant === null
     ? "<p>No ultra minimal development URL generated. Configure Tesla client credentials first.</p>"
-    : renderUltraMinimalTeslaAuthorizationVariant(ultraMinimalVariant);
+    : renderUltraMinimalTeslaAuthorizationVariant(ultraMinimalVariant, config.devMode, authService);
   const developmentLoginAvailable = developmentAuthStart.authorizationUrl !== null;
   const developmentLoginReason = developmentLoginAvailable
     ? "Development login URL generated."
@@ -2250,7 +2252,11 @@ function writeTeslaStartDebugHtml(
 </html>`);
 }
 
-function renderTeslaAuthorizationVariant(variant: TeslaAuthorizationUrlVariant): string {
+function renderTeslaAuthorizationVariant(
+  variant: TeslaAuthorizationUrlVariant,
+  devMode: boolean,
+  authService: ProviderAuthService,
+): string {
   const escapedUrl = escapeHtml(variant.authorizationUrl);
   const parameterRows = Object.entries(variant.decodedParameters)
     .map(([key, value]) => `<dt>${escapeHtml(key)}</dt><dd>${escapeHtml(value)}</dd>`)
@@ -2271,6 +2277,7 @@ function renderTeslaAuthorizationVariant(variant: TeslaAuthorizationUrlVariant):
       <dt>Raw link href</dt><dd>${escapedUrl}</dd>
     </dl>
     ${renderTeslaRedirectUriDiagnostics(variant.id, variant.redirectDiagnostics)}
+    ${renderTeslaDevelopmentExchangeValues(variant, devMode, authService)}
     <h4>Decoded parameters</h4>
     <dl>${parameterRows}</dl>
     <h4>Validation issues</h4>
@@ -2400,7 +2407,11 @@ function createUltraMinimalTeslaAuthorizationUrlVariant(
   };
 }
 
-function renderUltraMinimalTeslaAuthorizationVariant(variant: TeslaAuthorizationUrlVariant): string {
+function renderUltraMinimalTeslaAuthorizationVariant(
+  variant: TeslaAuthorizationUrlVariant,
+  devMode: boolean,
+  authService: ProviderAuthService,
+): string {
   const escapedUrl = escapeHtml(variant.authorizationUrl);
   return `<section class="variant">
     <h3>${escapeHtml(variant.label)}</h3>
@@ -2411,7 +2422,33 @@ function renderUltraMinimalTeslaAuthorizationVariant(variant: TeslaAuthorization
       <a href="${escapedUrl}" data-oauth-variant="${escapeHtml(variant.id)}">Open ultra minimal login</a>
     </div>
     ${renderTeslaRedirectUriDiagnostics(variant.id, variant.redirectDiagnostics)}
+    ${renderTeslaDevelopmentExchangeValues(variant, devMode, authService)}
   </section>`;
+}
+
+function renderTeslaDevelopmentExchangeValues(
+  variant: TeslaAuthorizationUrlVariant,
+  devMode: boolean,
+  authService: ProviderAuthService,
+): string {
+  const safeId = escapeHtml(variant.id);
+  const state = variant.decodedParameters.state ?? "missing";
+  const codeChallenge = variant.decodedParameters.code_challenge ?? "missing";
+  const codeVerifier = authService.getPendingTeslaCodeVerifier(state);
+  const visibleCodeVerifier = devMode ? codeVerifier ?? "missing" : "Hidden unless DEV_MODE=true";
+  return `<h4>Development exchange values</h4>
+    <p><strong>Development only. Do not share code_verifier.</strong></p>
+    <dl>
+      <dt>state</dt><dd>${escapeHtml(state)}</dd>
+      <dt>code_challenge</dt><dd>${escapeHtml(codeChallenge)}</dd>
+      <dt>code_verifier</dt><dd>${escapeHtml(visibleCodeVerifier)}</dd>
+    </dl>
+    <label for="state-${safeId}">state</label>
+    <textarea id="state-${safeId}" rows="3" readonly>${escapeHtml(state)}</textarea>
+    <p><button type="button" data-copy-target="state-${safeId}">Copy state</button></p>
+    ${devMode ? `<label for="code-verifier-${safeId}">code_verifier</label>
+    <textarea id="code-verifier-${safeId}" rows="4" readonly>${escapeHtml(codeVerifier ?? "missing")}</textarea>
+    <p><button type="button" data-copy-target="code-verifier-${safeId}">Copy code_verifier</button></p>` : ""}`;
 }
 
 function serializeRfc3986Query(parameters: Record<string, string>): string {

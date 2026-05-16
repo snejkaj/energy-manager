@@ -6,15 +6,21 @@ import { loadConfig } from "../config.js";
 applyHomeAssistantOptionsToEnv();
 
 const args = parseArgs(process.argv.slice(2));
-if (args.code === null || args.state === null) {
-  fail('Usage: npm run tesla:exchange-code -- --code "..." --state "..."');
+if (args.code === null || (args.state === null && args.codeVerifier === null)) {
+  fail('Usage: npm run tesla:exchange-code -- --code "..." (--code-verifier "..." | --state "...")');
 }
 
 const config = loadConfig();
 const authService = new ProviderAuthService(config);
 
 try {
-  const result = await authService.exchangePendingTeslaCode(args.code, args.state);
+  const result = args.codeVerifier === null
+    ? await authService.exchangePendingTeslaCode(args.code, args.state ?? "")
+    : await authService.exchangeTeslaCodeWithVerifier(
+        args.code,
+        args.codeVerifier,
+        args.redirectUri ?? config.teslaDevRedirectUri ?? "https://my.home-assistant.io/redirect/oauth",
+      );
   if (config.devMode) {
     process.stdout.write(`${result.accessToken}\n`);
   } else {
@@ -24,12 +30,17 @@ try {
   fail(error instanceof Error ? error.message : "Tesla code exchange failed.");
 }
 
-function parseArgs(argv: string[]): { code: string | null; state: string | null } {
+function parseArgs(argv: string[]): {
+  code: string | null;
+  state: string | null;
+  codeVerifier: string | null;
+  redirectUri: string | null;
+} {
   const values = new Map<string, string>();
   for (let index = 0; index < argv.length; index += 1) {
     const current = argv[index];
     const next = argv[index + 1];
-    if ((current === "--code" || current === "--state") && next !== undefined) {
+    if ((current === "--code" || current === "--state" || current === "--code-verifier" || current === "--redirect-uri") && next !== undefined) {
       values.set(current, next);
       index += 1;
     }
@@ -38,6 +49,8 @@ function parseArgs(argv: string[]): { code: string | null; state: string | null 
   return {
     code: normalize(values.get("--code")),
     state: normalize(values.get("--state")),
+    codeVerifier: normalize(values.get("--code-verifier")),
+    redirectUri: normalize(values.get("--redirect-uri")),
   };
 }
 

@@ -335,6 +335,15 @@ export class ProviderAuthService {
     };
   }
 
+  getPendingTeslaCodeVerifier(state: string): string | null {
+    let pendingState = this.pendingStates.get(state);
+    if (pendingState === undefined) {
+      this.loadPersistedPendingStates();
+      pendingState = this.pendingStates.get(state);
+    }
+    return pendingState?.provider === "tesla" ? pendingState.codeVerifier : null;
+  }
+
   async exchangeLatestPendingTeslaCode(code: string): Promise<ManualTeslaTokenExchangeResult> {
     const pendingState = [...this.pendingStates.values()]
       .filter((state) => state.provider === "tesla")
@@ -366,6 +375,25 @@ export class ProviderAuthService {
     const tokenResponse = await this.exchangeCode("tesla", code, pendingState);
     this.pendingStates.delete(state);
     this.persistPendingStates();
+    return {
+      accessToken: tokenResponse.access_token,
+      refreshToken: tokenResponse.refresh_token ?? null,
+      expiresIn: tokenResponse.expires_in ?? null,
+    };
+  }
+
+  async exchangeTeslaCodeWithVerifier(
+    code: string,
+    codeVerifier: string,
+    redirectUri: string,
+  ): Promise<ManualTeslaTokenExchangeResult> {
+    const tokenResponse = await this.exchangeCode("tesla", code, {
+      provider: "tesla",
+      state: "direct-code-verifier",
+      createdAt: new Date().toISOString(),
+      codeVerifier,
+      redirectUri,
+    });
     return {
       accessToken: tokenResponse.access_token,
       refreshToken: tokenResponse.refresh_token ?? null,
