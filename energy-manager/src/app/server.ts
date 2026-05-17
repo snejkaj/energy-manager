@@ -16,7 +16,7 @@ import { MockChargerProvider } from "../providers/mock/MockChargerProvider.js";
 import { MockElectricityPriceProvider } from "../providers/mock/MockElectricityPriceProvider.js";
 import { ProviderRegistry } from "../providers/ProviderRegistry.js";
 import { OpenMeteoWeatherProvider } from "../providers/openMeteo/OpenMeteoWeatherProvider.js";
-import { TeslaClient } from "../providers/tesla/TeslaClient.js";
+import { TeslaApiError, TeslaClient } from "../providers/tesla/TeslaClient.js";
 import { getTeslaOAuthFleetLastError, recordTeslaOAuthEvent } from "../providers/tesla/TeslaDiagnostics.js";
 import { TeslaVehicleStateProvider } from "../providers/tesla/TeslaProvider.js";
 import { TibberGraphQLClient } from "../providers/tibber/TibberClient.js";
@@ -85,6 +85,7 @@ export function startServer(): void {
   assertStartupIsReady(onboarding);
 
   const authService = new ProviderAuthService(config);
+  void validateTeslaDevelopmentTokenAtStartup(config, authService);
   const supportExplainer = new RuleBasedSupportExplainer();
   let emergencyOverrideActive = false;
   let lastApiError: SupportEvent | null = null;
@@ -208,7 +209,7 @@ export function startServer(): void {
     }
 
     if (request.method === "GET" && path === "/debug/config") {
-      writeJson(response, 200, createConfigDiagnostics(config, request));
+      writeJson(response, 200, createConfigDiagnostics(config, request, authService));
       return;
     }
 
@@ -632,18 +633,18 @@ async function createPlanResponse(
   registry: ProviderRegistry,
   emergencyOverrideActive: boolean,
 ): Promise<PlanResponse> {
+  const providerWarnings: string[] = [];
+  const vehicleState = await getVehicleState(config, registry, providerWarnings);
   const priceProvider = registry.getElectricityPriceProvider(config.electricityPriceProvider);
   if (priceProvider === null) {
-    return createDemoPlanResponse(config, onboarding, emergencyOverrideActive);
+    return createDemoPlanResponse(config, onboarding, emergencyOverrideActive, vehicleState, providerWarnings);
   }
 
   if (config.tibberAccessToken === null) {
-    return createDemoPlanResponse(config, onboarding, emergencyOverrideActive);
+    return createDemoPlanResponse(config, onboarding, emergencyOverrideActive, vehicleState, providerWarnings);
   }
 
   const target = createChargingTarget(config);
-  const providerWarnings: string[] = [];
-  const vehicleState = await getVehicleState(config, registry, providerWarnings);
   const homeTelemetry = await getHomeTelemetry(config, registry, providerWarnings);
   const priceQuery = createPriceQuery(target);
   let providerPrices: PriceInterval[];
@@ -651,7 +652,7 @@ async function createPlanResponse(
     providerPrices = await priceProvider.getPrices(priceQuery);
   } catch (error) {
     logger.error("Tibber", `Tibber price data could not be loaded: ${error instanceof Error ? error.message : "Unknown error"}`);
-    const demoResponse = createDemoPlanResponse(config, onboarding, emergencyOverrideActive);
+    const demoResponse = createDemoPlanResponse(config, onboarding, emergencyOverrideActive, vehicleState, providerWarnings);
     return {
       ...demoResponse,
       providerWarnings: [
@@ -662,7 +663,7 @@ async function createPlanResponse(
   }
   if (providerPrices.length === 0) {
     providerWarnings.push("Tibber returned no upcoming price intervals; demo prices are shown.");
-    const demoResponse = createDemoPlanResponse(config, onboarding, emergencyOverrideActive);
+    const demoResponse = createDemoPlanResponse(config, onboarding, emergencyOverrideActive, vehicleState, providerWarnings);
     return {
       ...demoResponse,
       providerWarnings,
@@ -750,6 +751,8 @@ function createDemoPlanResponse(
   config: AppConfig,
   onboarding: StartupOnboarding,
   emergencyOverrideActive: boolean,
+  liveVehicleState: VehicleState | null = null,
+  providerWarnings: string[] = [],
 ): PlanResponse {
   const modeResult = applyUserModePolicy({
     target: createChargingTarget(config),
@@ -775,10 +778,12 @@ function createDemoPlanResponse(
     },
     completion,
     dailyFeedback: analyzeOutcomes(dailyOutcomes),
-    onboarding: createOnboardingResponse(onboarding),
+    onboarding: createOnboardingResponse(onboarding, liveVehicleState),
     status: createStatusResponse(config, onboarding, emergencyOverrideActive),
-    vehicleState: createDemoVehicleState(),
-    tesla: createTeslaDemoStatus(null),
+    vehicleState: liveVehicleState ?? createDemoVehicleState(),
+    tesla: liveVehicleState === null
+      ? createTeslaDemoStatus(null)
+      : createTeslaStatusFromState(true, liveVehicleState, null),
     pricingContext: {
       currentPrice: 0.88,
       currency: "SEK",
@@ -786,7 +791,12 @@ function createDemoPlanResponse(
       description: "Electricity is cheap overnight.",
     },
     tibber: createTibberStatus(config, null, null),
-    providerWarnings: ["Demo mode is using realistic sample car and price data."],
+    providerWarnings: [
+      liveVehicleState === null
+        ? "Demo mode is using realistic sample car and price data."
+        : "Demo prices are used while real Tesla vehicle data remains active.",
+      ...providerWarnings,
+    ],
     emergencyOverrideActive,
     plan,
   };
@@ -892,11 +902,32 @@ function createTeslaVehicleProvider(config: AppConfig, authService: ProviderAuth
 function createTeslaErrorResponse(_config: AppConfig, error: unknown, authService?: ProviderAuthService) {
   logger.error("Tesla", `Tesla data could not be loaded: ${error instanceof Error ? error.message : "Unknown error"}`);
   const hasToken = authService?.getAccessToken("tesla") !== null;
+  const invalidDevelopmentToken =
+    authService?.isUsingTemporaryTeslaAccessToken() === true
+    && error instanceof TeslaApiError
+    && error.httpStatus === 401;
   return createTeslaDemoStatus(
     !hasToken
       ? "Tesla is not connected. Click Connect Tesla to sign in."
+      : invalidDevelopmentToken
+        ? "Temporary Tesla development token is invalid or expired."
       : `Tesla data could not be loaded: ${error instanceof Error ? error.message : "Unknown error"}`,
   );
+}
+
+async function validateTeslaDevelopmentTokenAtStartup(config: AppConfig, authService: ProviderAuthService): Promise<void> {
+  if (!authService.isUsingTemporaryTeslaAccessToken()) {
+    return;
+  }
+
+  logger.info("Tesla", "Validating temporary Tesla development token with Fleet API /vehicles.");
+  try {
+    const response = await getTeslaVehiclesResponse(config, authService);
+    logger.info("Tesla", `Temporary Tesla development token validation succeeded; vehicles=${response.vehicles.length}.`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    logger.error("Tesla", `Temporary Tesla development token validation failed: ${message}`);
+  }
 }
 
 function createTeslaDemoStatus(warning: string | null) {
@@ -1320,11 +1351,9 @@ function logIntegrationSetupStatus(config: AppConfig): void {
   logger.info("TeslaConfig", "manual token helper enabled");
 }
 
-function createConfigDiagnostics(config: AppConfig, request: IncomingMessage) {
-  const teslaOAuthConfigured =
-    config.teslaOAuthClientId !== null
-    && config.teslaOAuthClientSecret !== null
-    && config.teslaPublicCallbackUrl !== null;
+function createConfigDiagnostics(config: AppConfig, request: IncomingMessage, authService: ProviderAuthService) {
+  const teslaStatus = authService.getConnectionStatus("tesla");
+  const teslaOAuthConfigured = teslaStatus.oauthConfigured;
   const callbackInfo = createTeslaCallbackInfo(request, config);
 
   return {
@@ -1332,6 +1361,7 @@ function createConfigDiagnostics(config: AppConfig, request: IncomingMessage) {
     tibberAccessTokenLength: config.tibberAccessToken?.length ?? 0,
     tibberHomeIdConfigured: config.tibberHomeId !== null,
     teslaOAuthConfigured,
+    teslaTokenSource: teslaStatus.tokenSource,
     teslaClientIdConfigured: config.teslaOAuthClientId !== null,
     teslaClientIdLength: config.teslaOAuthClientId?.length ?? 0,
     teslaClientSecretConfigured: config.teslaOAuthClientSecret !== null,
@@ -2931,6 +2961,8 @@ function renderHtml(): string {
           <dd id="diag-tesla-redirect-uri">Not configured</dd>
           <dt>Tesla OAuth configured</dt>
           <dd id="diag-tesla-oauth-configured">Unknown</dd>
+          <dt>Tesla token source</dt>
+          <dd id="diag-tesla-token-source">Unknown</dd>
           <dt>Tesla debug route available</dt>
           <dd id="diag-tesla-debug-route">Unknown</dd>
           <dt>Last Tesla OAuth error</dt>

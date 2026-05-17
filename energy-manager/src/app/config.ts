@@ -121,8 +121,8 @@ function defaultHomeTelemetryProvider(env: NodeJS.ProcessEnv): string {
   return emptyToNull(env.TIBBER_ACCESS_TOKEN) === null ? "mock-home-telemetry" : "tibber-live-measurement";
 }
 
-function defaultVehicleStateProvider(_env: NodeJS.ProcessEnv): string {
-  return "mock-vehicle-state";
+function defaultVehicleStateProvider(env: NodeJS.ProcessEnv): string {
+  return emptyToNull(trimEnv(env.TESLA_DEV_ACCESS_TOKEN)) === null ? "mock-vehicle-state" : "tesla";
 }
 
 function defaultWeatherForecastProvider(env: NodeJS.ProcessEnv): string {

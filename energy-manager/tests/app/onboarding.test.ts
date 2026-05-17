@@ -50,4 +50,17 @@ describe("startup onboarding", () => {
       "Planning only mode is active. No charger hardware will be controlled until a charger provider is configured.",
     );
   });
+
+  it("explains when temporary Tesla development data is active", () => {
+    const onboarding = createStartupOnboarding(loadConfig({
+      TESLA_DEV_ACCESS_TOKEN: "temporary-token",
+    }));
+
+    expect(onboarding.setupMessages).toContain(
+      "Using temporary Tesla development token for read-only vehicle data.",
+    );
+    expect(onboarding.setupMessages).not.toContain(
+      "Tesla is not connected. Demo vehicle data is used for planning.",
+    );
+  });
 });

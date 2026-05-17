@@ -115,6 +115,7 @@ describe("loadConfig", () => {
     });
 
     expect(config.teslaDevAccessToken).toBe("temporary-token");
+    expect(config.vehicleStateProvider).toBe("tesla");
   });
 
   it("does not use legacy Tesla OAuth environment aliases", () => {

@@ -21,6 +21,7 @@ export interface ProviderConnectionStatus {
   provider: AuthProviderId;
   connected: boolean;
   oauthConfigured: boolean;
+  tokenSource: "oauth" | "tesla_dev_access_token" | "environment" | null;
   setupMessages: string[];
   demoStorage: boolean;
   summary: string | null;
@@ -123,6 +124,9 @@ export class ProviderAuthService {
   constructor(private readonly config: AppConfig) {
     this.loadPersistedTokens();
     this.loadPersistedPendingStates();
+    if (this.isUsingTemporaryTeslaAccessToken()) {
+      logger.info("TeslaAuth", "Bootstrapped Tesla connection from temporary development token.");
+    }
   }
 
   startAuth(provider: AuthProviderId, redirectUriOverride?: string | null): AuthStartResult {
@@ -289,13 +293,21 @@ export class ProviderAuthService {
     const token = this.tokens.get(provider);
     const envToken = getEnvironmentToken(this.config, provider);
     const connected = token !== undefined || envToken !== null;
-    const setupMessages = getMissingOAuthConfig(this.config, provider);
     const usingTemporaryTeslaToken = provider === "tesla" && token === undefined && envToken !== null;
+    const setupMessages = usingTemporaryTeslaToken ? [] : getMissingOAuthConfig(this.config, provider);
+    const tokenSource = token !== undefined
+      ? "oauth"
+      : usingTemporaryTeslaToken
+        ? "tesla_dev_access_token"
+        : envToken !== null
+          ? "environment"
+          : null;
 
     return {
       provider,
       connected,
-      oauthConfigured: setupMessages.length === 0,
+      oauthConfigured: usingTemporaryTeslaToken || setupMessages.length === 0,
+      tokenSource,
       setupMessages,
       demoStorage: token !== undefined && this.config.databaseUrl === null,
       summary: usingTemporaryTeslaToken

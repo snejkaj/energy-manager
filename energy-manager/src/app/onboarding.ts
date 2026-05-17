@@ -39,7 +39,9 @@ export function createStartupOnboarding(config: AppConfig): StartupOnboarding {
   }
 
   setupMessages.push(
-    "Tesla is not connected. Demo vehicle data is used for planning.",
+    config.teslaDevAccessToken === null
+      ? "Tesla is not connected. Demo vehicle data is used for planning."
+      : "Using temporary Tesla development token for read-only vehicle data.",
   );
 
   if (config.weatherLatitude === null || config.weatherLongitude === null) {

@@ -345,6 +345,7 @@ try {
       : connection.setupMessages?.join(". ") || connection.warning || "Not connected";
     if (provider === "tesla") {
       setDiag("diag-tesla-debug-route", "yes");
+      setDiag("diag-tesla-token-source", connection.tokenSource || "none");
     }
   }
 
@@ -486,6 +487,7 @@ try {
       .then(([config, callbackInfo, teslaLastError]) => {
         setDiag("diag-tesla-redirect-uri", callbackInfo.generatedCallbackUrl || "Not detected");
         setDiag("diag-tesla-oauth-configured", config.teslaOAuthConfigured ? "yes" : "no");
+        setDiag("diag-tesla-token-source", config.teslaTokenSource || "none");
         setDiag("diag-tesla-token-exchange", successLabel(teslaLastError.tokenExchangeSuccess));
         setDiag("diag-tesla-vehicles-fetch", successLabel(teslaLastError.vehiclesFetchSuccess));
         setDiag("diag-tesla-vehicle-data-fetch", successLabel(teslaLastError.vehicleDataFetchSuccess));
