@@ -95,6 +95,11 @@ describe("ProviderAuthService", () => {
       summary: "Using temporary Tesla development token",
     });
     expect(service.isUsingTemporaryTeslaAccessToken()).toBe(true);
+    expect(service.getOAuthDiagnostics("tesla")).toMatchObject({
+      configured: true,
+      tokenSource: "tesla_dev_access_token",
+      missingConfig: [],
+    });
 
     const start = service.startAuth("tesla", "http://localhost:3000/api/auth/tesla/callback");
     const state = new URL(start.authorizationUrl ?? "").searchParams.get("state");

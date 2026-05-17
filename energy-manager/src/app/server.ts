@@ -920,13 +920,15 @@ async function validateTeslaDevelopmentTokenAtStartup(config: AppConfig, authSer
     return;
   }
 
-  logger.info("Tesla", "Validating temporary Tesla development token with Fleet API /vehicles.");
+  logger.info("TeslaBootstrap", "validating token");
   try {
     const response = await getTeslaVehiclesResponse(config, authService);
-    logger.info("Tesla", `Temporary Tesla development token validation succeeded; vehicles=${response.vehicles.length}.`);
+    logger.info("TeslaBootstrap", `token valid; vehicles=${response.vehicles.length}`);
+    logger.info("TeslaBootstrap", "Tesla provider initialized");
+    logger.info("TeslaBootstrap", "oauthConfigured=true");
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
-    logger.error("Tesla", `Temporary Tesla development token validation failed: ${message}`);
+    logger.error("TeslaBootstrap", `token invalid: ${message}`);
   }
 }
 
@@ -2164,6 +2166,7 @@ function writeTeslaStartDebugHtml(
     <h1>Tesla OAuth debug</h1>
     <dl>
       <dt>OAuth configured</dt><dd>${diagnostics.configured ? "yes" : "no"}</dd>
+      <dt>Token source</dt><dd>${escapeHtml(diagnostics.tokenSource ?? "none")}</dd>
       <dt>Client ID configured</dt><dd>${diagnostics.clientIdConfigured ? "yes" : "no"}</dd>
       <dt>Client secret configured</dt><dd>${diagnostics.clientSecretConfigured ? "yes" : "no"}</dd>
       <dt>Public callback URL configured</dt><dd>${callbackInfo.publicCallbackConfigured ? "yes" : "no"}</dd>

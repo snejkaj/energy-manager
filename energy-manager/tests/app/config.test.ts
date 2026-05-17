@@ -118,6 +118,15 @@ describe("loadConfig", () => {
     expect(config.vehicleStateProvider).toBe("tesla");
   });
 
+  it("promotes the mock vehicle provider to Tesla when a development token exists", () => {
+    const config = loadConfig({
+      TESLA_DEV_ACCESS_TOKEN: "temporary-token",
+      VEHICLE_STATE_PROVIDER: "mock-vehicle-state",
+    });
+
+    expect(config.vehicleStateProvider).toBe("tesla");
+  });
+
   it("does not use legacy Tesla OAuth environment aliases", () => {
     const config = loadConfig({
       TESLA_OAUTH_CLIENT_ID: "legacy-client-id",

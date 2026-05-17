@@ -219,7 +219,7 @@ For development and testing only, you can temporarily set:
 tesla_dev_access_token: "paste-temporary-development-token-here"
 ```
 
-The UI labels this as `Using temporary Tesla development token`. OAuth remains the preferred path. A temporary development token expires and must be replaced manually; never commit it, share it, or use it as the long-term setup.
+The UI labels this as `Using temporary Tesla development token`. When this value is present, the add-on starts the read-only Tesla provider automatically so you can test real battery data without finishing the OAuth callback flow. OAuth remains the preferred path. A temporary development token expires and must be replaced manually; never commit it, share it, or use it as the long-term setup.
 
 For local OAuth troubleshooting only, `dev_mode: true` enables `/debug/tesla/manual-token-helper`. It can exchange an authorization code from an already-started Tesla login and shows tokens only on that development-only page. Keep `dev_mode` off outside local testing.
 

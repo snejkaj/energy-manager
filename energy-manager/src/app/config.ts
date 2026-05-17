@@ -70,7 +70,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     electricityPriceProvider: emptyToNull(env.ELECTRICITY_PRICE_PROVIDER) ?? defaultElectricityPriceProvider(env),
     homeTelemetryProvider: emptyToNull(env.HOME_TELEMETRY_PROVIDER) ?? defaultHomeTelemetryProvider(env),
     chargerProvider: emptyToNull(env.CHARGER_PROVIDER) ?? "planning-only",
-    vehicleStateProvider: emptyToNull(env.VEHICLE_STATE_PROVIDER) ?? defaultVehicleStateProvider(env),
+    vehicleStateProvider: resolveVehicleStateProvider(env),
     weatherForecastProvider: emptyToNull(env.WEATHER_FORECAST_PROVIDER) ?? defaultWeatherForecastProvider(env),
     userMode: parseUserMode(env.USER_MODE, setupNotes),
     socBufferPercent: parseNumberWithDefault(env.SOC_BUFFER_PERCENT, 15, "SOC buffer", setupNotes),
@@ -123,6 +123,17 @@ function defaultHomeTelemetryProvider(env: NodeJS.ProcessEnv): string {
 
 function defaultVehicleStateProvider(env: NodeJS.ProcessEnv): string {
   return emptyToNull(trimEnv(env.TESLA_DEV_ACCESS_TOKEN)) === null ? "mock-vehicle-state" : "tesla";
+}
+
+function resolveVehicleStateProvider(env: NodeJS.ProcessEnv): string {
+  const configuredProvider = emptyToNull(env.VEHICLE_STATE_PROVIDER);
+  const hasDevelopmentTeslaToken = emptyToNull(trimEnv(env.TESLA_DEV_ACCESS_TOKEN)) !== null;
+
+  if (hasDevelopmentTeslaToken && (configuredProvider === null || configuredProvider === "mock-vehicle-state")) {
+    return "tesla";
+  }
+
+  return configuredProvider ?? defaultVehicleStateProvider(env);
 }
 
 function defaultWeatherForecastProvider(env: NodeJS.ProcessEnv): string {
