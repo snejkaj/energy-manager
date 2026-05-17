@@ -29,6 +29,8 @@ import {
   type AuthProviderId,
   type AuthStartResult,
   type ProviderOAuthDiagnostics,
+  computeTeslaCodeChallenge,
+  type TeslaDevelopmentAuthAttempt,
 } from "./auth/ProviderAuthService.js";
 import { loadConfig, type AppConfig } from "./config.js";
 import { logger } from "./logger.js";
@@ -214,10 +216,9 @@ export function startServer(): void {
       const callbackInfo = createTeslaCallbackInfo(request, config);
       const diagnostics = authService.getOAuthDiagnostics("tesla", callbackInfo.callbackUrl);
       const authStart = authService.startAuth("tesla", callbackInfo.callbackUrl);
-      const developmentAuthStart = authService.startAuth("tesla", createTeslaDevelopmentRedirectUri(config));
-      const ultraMinimalDevelopmentAuthStart = authService.startAuth("tesla", MY_HOME_ASSISTANT_REDIRECT_URI);
+      const developmentAttempt = authService.startTeslaDevelopmentAuthAttempt(createTeslaDevelopmentRedirectUri(config));
       logTeslaAuthStart(authStart);
-      writeTeslaStartDebugHtml(response, config, authService, diagnostics, authStart, developmentAuthStart, ultraMinimalDevelopmentAuthStart, authService.getPendingStateDiagnostics("tesla"), callbackInfo, createBackHref(path));
+      writeTeslaStartDebugHtml(response, config, diagnostics, authStart, developmentAttempt, authService.getPendingStateDiagnostics("tesla"), callbackInfo, createBackHref(path));
       return;
     }
 
@@ -374,10 +375,9 @@ export function startServer(): void {
       const callbackInfo = createTeslaCallbackInfo(request, config);
       const diagnostics = authService.getOAuthDiagnostics("tesla", callbackInfo.callbackUrl);
       const authStart = authService.startAuth("tesla", callbackInfo.callbackUrl);
-      const developmentAuthStart = authService.startAuth("tesla", createTeslaDevelopmentRedirectUri(config));
-      const ultraMinimalDevelopmentAuthStart = authService.startAuth("tesla", MY_HOME_ASSISTANT_REDIRECT_URI);
+      const developmentAttempt = authService.startTeslaDevelopmentAuthAttempt(createTeslaDevelopmentRedirectUri(config));
       logTeslaAuthStart(authStart);
-      writeTeslaStartDebugHtml(response, config, authService, diagnostics, authStart, developmentAuthStart, ultraMinimalDevelopmentAuthStart, authService.getPendingStateDiagnostics("tesla"), callbackInfo, createBackHref(path));
+      writeTeslaStartDebugHtml(response, config, diagnostics, authStart, developmentAttempt, authService.getPendingStateDiagnostics("tesla"), callbackInfo, createBackHref(path));
       return;
     }
 
@@ -2050,11 +2050,9 @@ function firstHeader(request: IncomingMessage, name: string): string | null {
 function writeTeslaStartDebugHtml(
   response: ServerResponse,
   config: AppConfig,
-  authService: ProviderAuthService,
   diagnostics: ProviderOAuthDiagnostics,
   authStart: AuthStartResult,
-  developmentAuthStart: AuthStartResult,
-  ultraMinimalDevelopmentAuthStart: AuthStartResult,
+  developmentAttempt: TeslaDevelopmentAuthAttempt | null,
   pendingStateDiagnostics: ReturnType<ProviderAuthService["getPendingStateDiagnostics"]>,
   callbackInfo: TeslaCallbackInfo,
   backHref: string,
@@ -2074,19 +2072,14 @@ function writeTeslaStartDebugHtml(
   const callbackCandidates = callbackInfo.candidates
     .map((candidate) => `<li>${candidate.selected ? "<strong>Selected:</strong> " : ""}${escapeHtml(candidate.source)} - ${escapeHtml(candidate.callbackUrl)} (${candidate.reason}; HTTPS: ${candidate.https ? "yes" : "no"}; public: ${candidate.publiclyReachable ? "yes" : "no"})${candidate.warnings.length === 0 ? "" : ` Warnings: ${escapeHtml(candidate.warnings.join(" "))}`}</li>`)
     .join("");
-  const variants = createTeslaAuthorizationUrlVariants(developmentAuthStart.authorizationUrl);
-  const variantCards = variants.length === 0
-    ? "<p>No development variants available. Configure Tesla client credentials first.</p>"
-    : variants.map((variant) => renderTeslaAuthorizationVariant(variant, config.devMode, authService)).join("");
-  const ultraMinimalVariant = createUltraMinimalTeslaAuthorizationUrlVariant(ultraMinimalDevelopmentAuthStart.authorizationUrl);
-  const ultraMinimalControls = ultraMinimalVariant === null
-    ? "<p>No ultra minimal development URL generated. Configure Tesla client credentials first.</p>"
-    : renderUltraMinimalTeslaAuthorizationVariant(ultraMinimalVariant, config.devMode, authService);
-  const developmentLoginAvailable = developmentAuthStart.authorizationUrl !== null;
+  const developmentAttemptHtml = developmentAttempt === null
+    ? "<p>No development attempt available. Configure Tesla client credentials first.</p>"
+    : renderTeslaDevelopmentAttempt(developmentAttempt, config.devMode);
+  const developmentLoginAvailable = developmentAttempt !== null;
   const developmentLoginReason = developmentLoginAvailable
     ? "Development login URL generated."
-    : developmentAuthStart.message;
-  const developmentRedirectUri = createTeslaDevelopmentRedirectUriFromAuthStart(developmentAuthStart);
+    : "Development login URL was not generated.";
+  const developmentRedirectUri = developmentAttempt?.redirectUri ?? "not configured";
   const developmentUsesMyHomeAssistantRedirect = developmentRedirectUri === "https://my.home-assistant.io/redirect/oauth";
   const oauthStatus = createTeslaOAuthStatus();
   const oauthStatusRows = [
@@ -2148,7 +2141,7 @@ function writeTeslaStartDebugHtml(
       <dt>Development login status</dt><dd>${escapeHtml(developmentLoginReason)}</dd>
       <dt>Development redirect URI used</dt><dd>${escapeHtml(developmentRedirectUri)}</dd>
       <dt>Development redirect URI equals https://my.home-assistant.io/redirect/oauth</dt><dd>${developmentUsesMyHomeAssistantRedirect ? "yes" : "no"}</dd>
-      <dt>Development authorization URL</dt><dd>${escapeHtml(developmentAuthStart.authorizationUrl ?? "not generated")}</dd>
+      <dt>Development authorization URL</dt><dd>${escapeHtml(developmentAttempt?.authorizationUrl ?? "not generated")}</dd>
       <dt>Manual token helper route reachable</dt><dd>yes</dd>
       <dt>Active OAuth states count</dt><dd>${pendingStateDiagnostics.count}</dd>
       <dt>Latest state id</dt><dd>${escapeHtml(pendingStateDiagnostics.latestStateId ?? "none")}</dd>
@@ -2201,15 +2194,12 @@ function writeTeslaStartDebugHtml(
     <h2>Authorization URL validation</h2>
     <ul>${validationErrors}</ul>
     ${authUrlControls}
-    <h2>Ultra minimal development login</h2>
-    <p>This URL uses only the OAuth fields Tesla requires and always uses <code>${MY_HOME_ASSISTANT_REDIRECT_URI}</code>.</p>
+    <h2>Development OAuth attempt</h2>
+    <p>This block is atomic: the URL, state, verifier, and challenge below belong to the same Tesla login attempt.</p>
     <p>If My Home Assistant later shows an invalid state error, use the returned <code>code</code> and <code>state</code> with the manual helper or the CLI command. Development token exchange does not depend on My Home Assistant validating that callback.</p>
-    <p><code>npm run tesla:exchange-code -- --code "..." --state "..."</code></p>
+    <p><code>npm run tesla:exchange-code -- --code "..." --code-verifier "..." --expected-code-challenge "..."</code></p>
     <p><a href="../../debug/tesla/manual-token-helper">Open manual token helper</a></p>
-    ${ultraMinimalControls}
-    <h2>Development Tesla login links</h2>
-    <p><strong>Development only. These links are for obtaining a temporary Tesla authorization code.</strong></p>
-    ${variantCards}
+    ${developmentAttemptHtml}
     <p><a href="${escapeHtml(backHref)}">Back to Energy Manager</a></p>
     <script>
       async function copyFromTextarea(textareaId, button) {
@@ -2287,10 +2277,6 @@ function renderTeslaAuthorizationVariant(
 
 function createTeslaDevelopmentRedirectUri(config: AppConfig): string {
   return config.teslaDevRedirectUri ?? MY_HOME_ASSISTANT_REDIRECT_URI;
-}
-
-function createTeslaDevelopmentRedirectUriFromAuthStart(authStart: AuthStartResult): string {
-  return authStart.redirectUri ?? "not configured";
 }
 
 function callbackSourceLabel(source: TeslaCallbackCandidate["source"] | null): string {
@@ -2407,22 +2393,39 @@ function createUltraMinimalTeslaAuthorizationUrlVariant(
   };
 }
 
-function renderUltraMinimalTeslaAuthorizationVariant(
-  variant: TeslaAuthorizationUrlVariant,
-  devMode: boolean,
-  authService: ProviderAuthService,
-): string {
-  const escapedUrl = escapeHtml(variant.authorizationUrl);
+function renderTeslaDevelopmentAttempt(attempt: TeslaDevelopmentAuthAttempt, devMode: boolean): string {
+  const escapedUrl = escapeHtml(attempt.authorizationUrl);
+  const recomputedChallenge = computeTeslaCodeChallenge(attempt.codeVerifier);
+  const selfCheckPasses = recomputedChallenge === attempt.codeChallenge;
+  const visibleVerifier = devMode ? attempt.codeVerifier : "Hidden unless DEV_MODE=true";
   return `<section class="variant">
-    <h3>${escapeHtml(variant.label)}</h3>
-    <label for="authorization-url-${escapeHtml(variant.id)}">Exact generated URL</label>
-    <textarea id="authorization-url-${escapeHtml(variant.id)}" rows="7" readonly>${escapedUrl}</textarea>
+    <h3>Development Tesla login</h3>
+    <label for="development-authorization-url">authorizationUrl</label>
+    <textarea id="development-authorization-url" rows="7" readonly>${escapedUrl}</textarea>
     <div class="actions">
-      <button type="button" data-copy-target="authorization-url-${escapeHtml(variant.id)}">Copy ultra minimal URL</button>
-      <a href="${escapedUrl}" data-oauth-variant="${escapeHtml(variant.id)}">Open ultra minimal login</a>
+      <button type="button" data-copy-target="development-authorization-url">Copy authorizationUrl</button>
+      <a href="${escapedUrl}" data-oauth-variant="development-attempt">Open Tesla login</a>
     </div>
-    ${renderTeslaRedirectUriDiagnostics(variant.id, variant.redirectDiagnostics)}
-    ${renderTeslaDevelopmentExchangeValues(variant, devMode, authService)}
+    <p><strong>Development only. Do not share code_verifier.</strong></p>
+    <dl>
+      <dt>createdAt</dt><dd>${escapeHtml(attempt.createdAt)}</dd>
+      <dt>redirectUri</dt><dd>${escapeHtml(attempt.redirectUri)}</dd>
+      <dt>state</dt><dd>${escapeHtml(attempt.state)}</dd>
+      <dt>code_verifier</dt><dd>${escapeHtml(visibleVerifier)}</dd>
+      <dt>code_challenge</dt><dd>${escapeHtml(attempt.codeChallenge)}</dd>
+      <dt>PKCE self-check</dt><dd>${selfCheckPasses ? "pass" : "fail"}</dd>
+      <dt>Recomputed challenge</dt><dd>${escapeHtml(recomputedChallenge)}</dd>
+      <dt>URL challenge</dt><dd>${escapeHtml(new URL(attempt.authorizationUrl).searchParams.get("code_challenge") ?? "missing")}</dd>
+    </dl>
+    <label for="development-state">state</label>
+    <textarea id="development-state" rows="3" readonly>${escapeHtml(attempt.state)}</textarea>
+    <p><button type="button" data-copy-target="development-state">Copy state</button></p>
+    ${devMode ? `<label for="development-code-verifier">code_verifier</label>
+    <textarea id="development-code-verifier" rows="4" readonly>${escapeHtml(attempt.codeVerifier)}</textarea>
+    <p><button type="button" data-copy-target="development-code-verifier">Copy code_verifier</button></p>` : ""}
+    <label for="development-code-challenge">code_challenge</label>
+    <textarea id="development-code-challenge" rows="3" readonly>${escapeHtml(attempt.codeChallenge)}</textarea>
+    <p><button type="button" data-copy-target="development-code-challenge">Copy code_challenge</button></p>
   </section>`;
 }
 

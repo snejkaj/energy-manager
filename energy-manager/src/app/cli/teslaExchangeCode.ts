@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 
-import { ProviderAuthService } from "../auth/ProviderAuthService.js";
+import { computeTeslaCodeChallenge, ProviderAuthService } from "../auth/ProviderAuthService.js";
 import { loadConfig } from "../config.js";
 
 applyHomeAssistantOptionsToEnv();
@@ -8,13 +8,25 @@ applyHomeAssistantOptionsToEnv();
 const args = parseArgs(process.argv.slice(2));
 const codeVerifier = args.codeVerifier ?? normalize(process.env.TESLA_CODE_VERIFIER);
 if (args.code === null || (args.state === null && codeVerifier === null)) {
-  fail('Usage: npm run tesla:exchange-code -- --code "..." [--code-verifier "..." | --state "..."]\nYou may also set TESLA_CODE_VERIFIER instead of passing --code-verifier.');
+  fail('Usage: npm run tesla:exchange-code -- --code "..." [--code-verifier "..." | --state "..."] [--expected-code-challenge "..."]\nYou may also set TESLA_CODE_VERIFIER instead of passing --code-verifier.');
 }
 
 const config = loadConfig();
 const authService = new ProviderAuthService(config);
 
 try {
+  if (codeVerifier !== null) {
+    const computedChallenge = computeTeslaCodeChallenge(codeVerifier);
+    if (args.expectedCodeChallenge !== null && computedChallenge !== args.expectedCodeChallenge) {
+      fail("PKCE self-check failed: supplied code verifier does not match expected code challenge.");
+    }
+    if (config.devMode) {
+      process.stdout.write(`code verifier source: ${args.codeVerifier === null ? "env" : "argv"}\n`);
+      process.stdout.write(`code verifier length: ${codeVerifier.length}\n`);
+      process.stdout.write(`computed code challenge: ${computedChallenge}\n`);
+      process.stdout.write(`expected code challenge: ${args.expectedCodeChallenge ?? "not provided"}\n`);
+    }
+  }
   const result = codeVerifier === null
     ? await authService.exchangePendingTeslaCode(args.code, args.state ?? "")
     : await authService.exchangeTeslaCodeWithVerifier(
@@ -36,12 +48,13 @@ function parseArgs(argv: string[]): {
   state: string | null;
   codeVerifier: string | null;
   redirectUri: string | null;
+  expectedCodeChallenge: string | null;
 } {
   const values = new Map<string, string>();
   for (let index = 0; index < argv.length; index += 1) {
     const current = argv[index];
     const next = argv[index + 1];
-    if ((current === "--code" || current === "--state" || current === "--code-verifier" || current === "--redirect-uri") && next !== undefined) {
+    if ((current === "--code" || current === "--state" || current === "--code-verifier" || current === "--redirect-uri" || current === "--expected-code-challenge") && next !== undefined) {
       values.set(current, next);
       index += 1;
     }
@@ -52,6 +65,7 @@ function parseArgs(argv: string[]): {
     state: normalize(values.get("--state")),
     codeVerifier: normalize(values.get("--code-verifier")),
     redirectUri: normalize(values.get("--redirect-uri")),
+    expectedCodeChallenge: normalize(values.get("--expected-code-challenge")),
   };
 }
 

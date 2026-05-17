@@ -30,9 +30,9 @@ describe("Tesla UI surface", () => {
     expect(serverSource).toContain('path === "/debug/tesla/manual-token-helper/exchange"');
   });
 
-  it("keeps development Tesla login variants visible on the debug page", () => {
-    expect(serverSource).toContain("Development Tesla login links");
-    expect(serverSource).toContain("Development only. These links are for obtaining a temporary Tesla authorization code.");
+  it("keeps one atomic development Tesla login attempt visible on the debug page", () => {
+    expect(serverSource).toContain("Development OAuth attempt");
+    expect(serverSource).toContain("the URL, state, verifier, and challenge below belong to the same Tesla login attempt");
     expect(serverSource).toContain("https://my.home-assistant.io/redirect/oauth");
   });
 
@@ -45,11 +45,10 @@ describe("Tesla UI surface", () => {
     expect(serverSource).toContain("Development redirect URI equals https://my.home-assistant.io/redirect/oauth");
   });
 
-  it("keeps an explicit ultra minimal Tesla development login URL", () => {
-    expect(serverSource).toContain("Ultra minimal development login");
-    expect(serverSource).toContain("Open ultra minimal login");
-    expect(serverSource).toContain("serializeRfc3986Query");
-    expect(serverSource).toContain('parameters.redirect_uri = MY_HOME_ASSISTANT_REDIRECT_URI');
+  it("shows an explicit PKCE self-check for the atomic development attempt", () => {
+    expect(serverSource).toContain("PKCE self-check");
+    expect(serverSource).toContain("Recomputed challenge");
+    expect(serverSource).toContain("URL challenge");
   });
 
   it("keeps the manual token helper plain and state-based", () => {
@@ -67,7 +66,7 @@ describe("Tesla UI surface", () => {
 
   it("explains that manual Tesla dev exchange does not depend on My Home Assistant state validation", () => {
     expect(serverSource).toContain("does not depend on My Home Assistant completing verification");
-    expect(serverSource).toContain('npm run tesla:exchange-code -- --code "..." --state "..."');
+    expect(serverSource).toContain('npm run tesla:exchange-code -- --code "..." --code-verifier "..." --expected-code-challenge "..."');
   });
 
   it("shows development verifier values only for manual exchange", () => {

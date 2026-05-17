@@ -85,6 +85,15 @@ export interface PendingOAuthStateDiagnostics {
   latestStateAgeSeconds: number | null;
 }
 
+export interface TeslaDevelopmentAuthAttempt {
+  state: string;
+  codeVerifier: string;
+  codeChallenge: string;
+  authorizationUrl: string;
+  redirectUri: string;
+  createdAt: string;
+}
+
 interface PersistedProviderToken {
   provider: AuthProviderId;
   accessToken: string;
@@ -342,6 +351,32 @@ export class ProviderAuthService {
       pendingState = this.pendingStates.get(state);
     }
     return pendingState?.provider === "tesla" ? pendingState.codeVerifier : null;
+  }
+
+  startTeslaDevelopmentAuthAttempt(redirectUri: string): TeslaDevelopmentAuthAttempt | null {
+    const start = this.startAuth("tesla", redirectUri);
+    if (start.authorizationUrl === null) {
+      return null;
+    }
+    const generatedUrl = new URL(start.authorizationUrl);
+    const state = generatedUrl.searchParams.get("state");
+    if (state === null) {
+      return null;
+    }
+    const pendingState = this.pendingStates.get(state);
+    if (pendingState?.codeVerifier === null || pendingState?.codeVerifier === undefined) {
+      return null;
+    }
+    const codeChallenge = computeTeslaCodeChallenge(pendingState.codeVerifier);
+    const authorizationUrl = createMinimalTeslaAuthorizationUrl(generatedUrl, redirectUri, codeChallenge);
+    return {
+      state,
+      codeVerifier: pendingState.codeVerifier,
+      codeChallenge,
+      authorizationUrl,
+      redirectUri,
+      createdAt: pendingState.createdAt,
+    };
   }
 
   async exchangeLatestPendingTeslaCode(code: string): Promise<ManualTeslaTokenExchangeResult> {
@@ -644,8 +679,28 @@ function createPkceChallenge(): { verifier: string; challenge: string } {
   const verifier = randomBytes(64).toString("base64url");
   return {
     verifier,
-    challenge: createHash("sha256").update(verifier).digest("base64url"),
+    challenge: computeTeslaCodeChallenge(verifier),
   };
+}
+
+export function computeTeslaCodeChallenge(codeVerifier: string): string {
+  return createHash("sha256").update(codeVerifier).digest("base64url");
+}
+
+function createMinimalTeslaAuthorizationUrl(source: URL, redirectUri: string, codeChallenge: string): string {
+  const url = new URL(`${source.origin}${source.pathname}`);
+  for (const [key, value] of [
+    ["response_type", "code"],
+    ["client_id", source.searchParams.get("client_id") ?? ""],
+    ["redirect_uri", redirectUri],
+    ["scope", source.searchParams.get("scope") ?? ""],
+    ["state", source.searchParams.get("state") ?? ""],
+    ["code_challenge", codeChallenge],
+    ["code_challenge_method", "S256"],
+  ]) {
+    url.searchParams.set(key, value);
+  }
+  return url.toString();
 }
 
 function teslaFleetAudience(region: AppConfig["teslaRegion"]): string {
