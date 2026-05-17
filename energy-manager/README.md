@@ -221,6 +221,15 @@ tesla_dev_access_token: "paste-temporary-development-token-here"
 
 The UI labels this as `Using temporary Tesla development token`. When this value is present, the add-on starts the read-only Tesla provider automatically so you can test real battery data without finishing the OAuth callback flow. OAuth remains the preferred path. A temporary development token expires and must be replaced manually; never commit it, share it, or use it as the long-term setup.
 
+Tesla Fleet API setup can still be incomplete even when a user token is valid. Tesla's onboarding requires:
+
+- a public key hosted at `/.well-known/appspecific/com.tesla.3p.public-key.pem`
+- the application domain registered in Tesla Developer Console
+- Fleet API registration completed for the region you use
+- vehicle/account access granted after the app permissions are configured
+
+If the Tesla OAuth debug page shows `HTTP 412 Precondition Failed`, the token may be valid but the app/domain registration or vehicle access setup is not complete yet.
+
 For local OAuth troubleshooting only, `dev_mode: true` enables `/debug/tesla/manual-token-helper`. It can exchange an authorization code from an already-started Tesla login and shows tokens only on that development-only page. Keep `dev_mode` off outside local testing.
 
 For the development login flow, My Home Assistant may show its own `invalid state` error after Tesla redirects back. That does not block local testing. Copy the `code` and `state` values from the returned browser URL and exchange them with either the helper page or:

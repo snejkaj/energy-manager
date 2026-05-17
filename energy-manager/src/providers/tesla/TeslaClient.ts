@@ -43,6 +43,7 @@ export class TeslaFleetApiClient implements TeslaTransport {
         ok: false,
         httpStatus: response.status,
         safeError,
+        safeResponseBody: responseText,
         region: this.region,
       });
       throw new TeslaApiError(safeError, response.status, step);
@@ -92,6 +93,10 @@ function teslaStepFromPath(path: string): TeslaDiagnosticOperation {
 }
 
 function createFleetApiSafeError(step: TeslaDiagnosticOperation, status: number, responseText: string): string {
+  if (status === 412) {
+    return "Tesla Fleet API returned 412 Precondition Failed. This may mean the app/domain public key is not registered or vehicle access setup is incomplete.";
+  }
+
   if (status === 401 && step === "vehicles_fetch") {
     return "Tesla token was created, but Fleet API rejected it. Check scopes/API permissions/audience/region.";
   }

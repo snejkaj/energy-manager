@@ -22,6 +22,9 @@ export interface TeslaOAuthFleetLastError {
   lastStep: TeslaDiagnosticStep | null;
   httpStatus: number | null;
   safeError: string | null;
+  safeResponseBody: string | null;
+  lastEndpoint: string | null;
+  likelyMissingPublicKeySetup: boolean;
   redirectUriUsed: string | null;
   tokenEndpoint: string;
   fleetApiBaseUrl: string;
@@ -40,6 +43,9 @@ const defaultState: TeslaOAuthFleetLastError = {
   lastStep: null,
   httpStatus: null,
   safeError: null,
+  safeResponseBody: null,
+  lastEndpoint: null,
+  likelyMissingPublicKeySetup: false,
   redirectUriUsed: null,
   tokenEndpoint: "https://auth.tesla.com/oauth2/v3/token",
   fleetApiBaseUrl: fleetApiBaseUrl("eu"),
@@ -103,12 +109,16 @@ export function recordTeslaStepResult(input: {
   endpoint: string;
   ok: boolean;
   safeError: string | null;
+  safeResponseBody?: string | null;
   redirectUriUsed?: string | null;
   scopesRequested?: string[];
   region: TeslaRegion;
 }): void {
   const url = new URL(input.endpoint);
   const safeError = input.safeError === null ? null : sanitizeTeslaError(input.safeError);
+  const safeResponseBody = input.safeResponseBody === undefined || input.safeResponseBody === null
+    ? null
+    : sanitizeTeslaError(input.safeResponseBody);
   const step = `${input.step}_${input.ok ? "succeeded" : "failed"}` as TeslaDiagnosticStep;
   const recordedAt = new Date().toISOString();
   logger.info(
@@ -120,6 +130,9 @@ export function recordTeslaStepResult(input: {
     lastStep: step,
     httpStatus: input.httpStatus,
     safeError,
+    safeResponseBody,
+    lastEndpoint: `${url.origin}${url.pathname}`,
+    likelyMissingPublicKeySetup: input.httpStatus === 412,
     redirectUriUsed: input.redirectUriUsed ?? lastError.redirectUriUsed,
     tokenEndpoint: defaultState.tokenEndpoint,
     fleetApiBaseUrl: fleetApiBaseUrl(input.region),

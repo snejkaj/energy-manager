@@ -46,4 +46,26 @@ describe("TeslaFleetApiClient", () => {
     expect(lastError.safeError).toBe("Vehicle data permission denied. Check Fordonsinformation scope.");
     expect(JSON.stringify(lastError)).not.toContain("secret-access-token");
   });
+
+  it("records safe 412 diagnostics for incomplete Fleet API setup", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: false,
+      status: 412,
+      text: async () => JSON.stringify({ error: "precondition_failed", message: "partner account is not registered" }),
+    }));
+
+    const client = new TeslaFleetApiClient("secret-access-token", "eu");
+
+    await expect(client.get("/vehicles")).rejects.toThrow(TeslaApiError);
+    const lastError = getTeslaOAuthFleetLastError();
+
+    expect(lastError.httpStatus).toBe(412);
+    expect(lastError.lastEndpoint).toBe("https://fleet-api.prd.eu.vn.cloud.tesla.com/api/1/vehicles");
+    expect(lastError.safeError).toBe(
+      "Tesla Fleet API returned 412 Precondition Failed. This may mean the app/domain public key is not registered or vehicle access setup is incomplete.",
+    );
+    expect(lastError.safeResponseBody).toBe("precondition_failed: partner account is not registered");
+    expect(lastError.likelyMissingPublicKeySetup).toBe(true);
+    expect(JSON.stringify(lastError)).not.toContain("secret-access-token");
+  });
 });
