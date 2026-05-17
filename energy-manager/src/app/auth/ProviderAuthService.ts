@@ -13,6 +13,7 @@ import {
   resetTeslaOAuthFleetDiagnostics,
   sanitizeTeslaError,
 } from "../../providers/tesla/TeslaDiagnostics.js";
+import { computePkceChallenge } from "./Pkce.js";
 
 export type AuthProviderId = "tibber" | "tesla";
 
@@ -367,7 +368,7 @@ export class ProviderAuthService {
     if (pendingState?.codeVerifier === null || pendingState?.codeVerifier === undefined) {
       return null;
     }
-    const codeChallenge = computeTeslaCodeChallenge(pendingState.codeVerifier);
+    const codeChallenge = computePkceChallenge(pendingState.codeVerifier);
     const authorizationUrl = createMinimalTeslaAuthorizationUrl(generatedUrl, redirectUri, codeChallenge);
     return {
       state,
@@ -679,12 +680,8 @@ function createPkceChallenge(): { verifier: string; challenge: string } {
   const verifier = randomBytes(64).toString("base64url");
   return {
     verifier,
-    challenge: computeTeslaCodeChallenge(verifier),
+    challenge: computePkceChallenge(verifier),
   };
-}
-
-export function computeTeslaCodeChallenge(codeVerifier: string): string {
-  return createHash("sha256").update(codeVerifier).digest("base64url");
 }
 
 function createMinimalTeslaAuthorizationUrl(source: URL, redirectUri: string, codeChallenge: string): string {

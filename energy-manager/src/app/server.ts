@@ -29,9 +29,9 @@ import {
   type AuthProviderId,
   type AuthStartResult,
   type ProviderOAuthDiagnostics,
-  computeTeslaCodeChallenge,
   type TeslaDevelopmentAuthAttempt,
 } from "./auth/ProviderAuthService.js";
+import { computePkceChallenge } from "./auth/Pkce.js";
 import { loadConfig, type AppConfig } from "./config.js";
 import { logger } from "./logger.js";
 import { assertStartupIsReady, createStartupOnboarding, type StartupOnboarding } from "./onboarding.js";
@@ -2395,7 +2395,7 @@ function createUltraMinimalTeslaAuthorizationUrlVariant(
 
 function renderTeslaDevelopmentAttempt(attempt: TeslaDevelopmentAuthAttempt, devMode: boolean): string {
   const escapedUrl = escapeHtml(attempt.authorizationUrl);
-  const recomputedChallenge = computeTeslaCodeChallenge(attempt.codeVerifier);
+  const recomputedChallenge = computePkceChallenge(attempt.codeVerifier);
   const selfCheckPasses = recomputedChallenge === attempt.codeChallenge;
   const visibleVerifier = devMode ? attempt.codeVerifier : "Hidden unless DEV_MODE=true";
   return `<section class="variant">

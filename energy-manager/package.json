@@ -1,6 +1,6 @@
 {
   "name": "energy-manager",
-  "version": "0.5.15",
+  "version": "0.5.16",
   "private": true,
   "description": "Smart EV charging optimization for Home Assistant add-on packaging.",
   "type": "module",
@@ -13,6 +13,7 @@
     "lint": "eslint \"public/**/*.js\"",
     "test": "vitest run",
     "tesla:exchange-code": "npm run build --silent && node dist/src/app/cli/teslaExchangeCode.js",
+    "tesla:pkce-check": "npm run build --silent && node dist/src/app/cli/teslaPkceCheck.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "engines": {

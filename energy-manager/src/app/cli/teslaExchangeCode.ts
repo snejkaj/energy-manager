@@ -1,12 +1,13 @@
 import { existsSync, readFileSync } from "node:fs";
 
-import { computeTeslaCodeChallenge, ProviderAuthService } from "../auth/ProviderAuthService.js";
+import { ProviderAuthService } from "../auth/ProviderAuthService.js";
+import { computePkceChallenge, normalizeCodeVerifier } from "../auth/Pkce.js";
 import { loadConfig } from "../config.js";
 
 applyHomeAssistantOptionsToEnv();
 
 const args = parseArgs(process.argv.slice(2));
-const codeVerifier = args.codeVerifier ?? normalize(process.env.TESLA_CODE_VERIFIER);
+const codeVerifier = normalizeNullableCodeVerifier(args.codeVerifier ?? process.env.TESLA_CODE_VERIFIER);
 if (args.code === null || (args.state === null && codeVerifier === null)) {
   fail('Usage: npm run tesla:exchange-code -- --code "..." [--code-verifier "..." | --state "..."] [--expected-code-challenge "..."]\nYou may also set TESLA_CODE_VERIFIER instead of passing --code-verifier.');
 }
@@ -16,15 +17,17 @@ const authService = new ProviderAuthService(config);
 
 try {
   if (codeVerifier !== null) {
-    const computedChallenge = computeTeslaCodeChallenge(codeVerifier);
-    if (args.expectedCodeChallenge !== null && computedChallenge !== args.expectedCodeChallenge) {
-      fail("PKCE self-check failed: supplied code verifier does not match expected code challenge.");
-    }
+    const computedChallenge = computePkceChallenge(codeVerifier);
+    const matchesExpectedChallenge = args.expectedCodeChallenge === null || computedChallenge === args.expectedCodeChallenge;
     if (config.devMode) {
       process.stdout.write(`code verifier source: ${args.codeVerifier === null ? "env" : "argv"}\n`);
       process.stdout.write(`code verifier length: ${codeVerifier.length}\n`);
       process.stdout.write(`computed code challenge: ${computedChallenge}\n`);
       process.stdout.write(`expected code challenge: ${args.expectedCodeChallenge ?? "not provided"}\n`);
+      process.stdout.write(`match: ${matchesExpectedChallenge ? "yes" : "no"}\n`);
+    }
+    if (args.expectedCodeChallenge !== null && computedChallenge !== args.expectedCodeChallenge) {
+      fail("PKCE self-check failed: supplied code verifier does not match expected code challenge.");
     }
   }
   const result = codeVerifier === null
@@ -96,6 +99,10 @@ function setEnvFromOption(envKey: string, optionValue: unknown): void {
 
 function normalize(value: string | undefined): string | null {
   return value === undefined || value.trim() === "" ? null : value.trim();
+}
+
+function normalizeNullableCodeVerifier(value: string | undefined | null): string | null {
+  return value === undefined || value === null ? null : normalizeCodeVerifier(value);
 }
 
 function fail(message: string): never {
