@@ -290,6 +290,7 @@ try {
   function renderTeslaStatus(data) {
     const state = data.vehicleState || {};
     const usingDemoData = data.usingDemoData === true || state.isDemo === true;
+    const devTokenModeActive = data.devTokenModeActive === true;
     setText("tesla-status", data.connected ? "Connected" : "Tesla not connected");
     setText(
       "tesla-summary",
@@ -297,6 +298,7 @@ try {
         ? "Using demo vehicle data"
         : data.warning || (data.connected ? "Tesla connected in read-only mode." : "Not connected"),
     );
+    setDisplay("tesla-dev-token-badge", devTokenModeActive ? "inline-flex" : "none");
     setText("tesla-vehicle-name", "Vehicle: " + (usingDemoData ? "Demo vehicle" : data.vehicleName || state.vehicleName || "Unknown"));
     const batterySoc = data.batterySocPercent ?? state.batterySocPercent ?? null;
     setText("tesla-battery", "Battery: " + (batterySoc === null ? "Unknown" : usingDemoData ? "Demo " + batterySoc + "%" : batterySoc + "%"));
@@ -551,6 +553,13 @@ try {
     const element = document.getElementById(id);
     if (element) {
       element.textContent = text;
+    }
+  }
+
+  function setDisplay(id, display) {
+    const element = document.getElementById(id);
+    if (element) {
+      element.style.display = display;
     }
   }
 

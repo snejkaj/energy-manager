@@ -734,7 +734,7 @@ async function createPlanResponse(
     vehicleState,
     tesla: vehicleState === null
       ? createTeslaDemoStatus("Tesla is not connected. Demo vehicle data is used for planning.")
-      : createTeslaStatusFromState(true, vehicleState, null),
+      : createTeslaStatusFromState(true, vehicleState, null, config.teslaDevAccessToken !== null),
     pricingContext: createPricingContext(currentPrice, priceProvider.metadata.displayName),
     tibber: createTibberStatus(
       config,
@@ -783,7 +783,7 @@ function createDemoPlanResponse(
     vehicleState: liveVehicleState ?? createDemoVehicleState(),
     tesla: liveVehicleState === null
       ? createTeslaDemoStatus(null)
-      : createTeslaStatusFromState(true, liveVehicleState, null),
+      : createTeslaStatusFromState(true, liveVehicleState, null, config.teslaDevAccessToken !== null),
     pricingContext: {
       currentPrice: 0.88,
       currency: "SEK",
@@ -877,13 +877,17 @@ async function getTeslaStateResponse(config: AppConfig, authService: ProviderAut
 
   const state = await provider.getVehicleState({ forceRefresh });
   if (state === null) {
-    return createTeslaDemoStatus("Tesla data is unavailable - using demo vehicle data");
+    return createTeslaUnavailableStatus(
+      authService.isUsingTemporaryTeslaAccessToken(),
+      "Tesla is connected, but no vehicle state is available yet.",
+    );
   }
 
   return createTeslaStatusFromState(
     true,
     state,
     authService.isUsingTemporaryTeslaAccessToken() ? "Using temporary Tesla development token" : null,
+    authService.isUsingTemporaryTeslaAccessToken(),
   );
 }
 
@@ -936,7 +940,40 @@ function createTeslaDemoStatus(warning: string | null) {
   return createTeslaStatusFromState(false, createDemoVehicleState(), warning);
 }
 
-function createTeslaStatusFromState(connected: boolean, state: VehicleState, warning: string | null) {
+function createTeslaUnavailableStatus(devTokenModeActive: boolean, warning: string) {
+  const observedAt = new Date().toISOString();
+  return createTeslaStatusFromState(
+    true,
+    {
+      batterySocPercent: null,
+      pluggedIn: null,
+      chargingState: null,
+      estimatedRangeKm: null,
+      chargeLimitPercent: null,
+      chargerPowerKw: null,
+      chargerVoltage: null,
+      chargerActualCurrent: null,
+      timeToFullChargeHours: null,
+      batteryRangeKm: null,
+      vehicleName: null,
+      vehicleId: null,
+      vehicleOnlineState: "unknown",
+      lastUpdatedAt: null,
+      isDemo: false,
+      source: "tesla",
+      observedAt,
+    },
+    warning,
+    devTokenModeActive,
+  );
+}
+
+function createTeslaStatusFromState(
+  connected: boolean,
+  state: VehicleState,
+  warning: string | null,
+  devTokenModeActive = false,
+) {
   const usingDemoData = !connected || state.isDemo;
   const asleepWarning =
     connected
@@ -950,6 +987,8 @@ function createTeslaStatusFromState(connected: boolean, state: VehicleState, war
   return {
     connected,
     usingDemoData,
+    devTokenModeActive,
+    writeOperationsEnabled: false,
     warning: warning ?? asleepWarning,
     vehicleState: state,
     vehicleName: state.vehicleName ?? null,
@@ -2734,6 +2773,19 @@ function renderHtml(): string {
       font-weight: 680;
     }
 
+    .badge {
+      align-items: center;
+      background: #ecfeff;
+      border: 1px solid #a5f3fc;
+      border-radius: 999px;
+      color: #155e75;
+      display: inline-flex;
+      font-size: 12px;
+      font-weight: 600;
+      margin-top: 6px;
+      padding: 3px 8px;
+    }
+
     .reasons {
       margin: 8px 0 0;
       padding-left: 20px;
@@ -3089,6 +3141,7 @@ function renderHtml(): string {
           <div>
             <span class="label">Tesla</span>
             <span class="value" id="tesla-status">Not connected</span>
+            <span class="badge" id="tesla-dev-token-badge" style="display:none">Dev token mode active</span>
             <p class="subtle" id="tesla-summary">Using demo vehicle data</p>
             <p class="subtle" id="tesla-vehicle-name">Vehicle: Demo vehicle</p>
             <p class="subtle" id="tesla-battery">Battery: Demo 42%</p>
