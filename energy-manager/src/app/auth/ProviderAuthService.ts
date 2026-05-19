@@ -130,11 +130,15 @@ export class ProviderAuthService {
     }
   }
 
-  startAuth(provider: AuthProviderId, redirectUriOverride?: string | null): AuthStartResult {
+  startAuth(
+    provider: AuthProviderId,
+    redirectUriOverride?: string | null,
+    options: { recordDiagnostics?: boolean } = {},
+  ): AuthStartResult {
     const oauthConfig = getOAuthConfig(this.config, provider);
     const redirectUri = redirectUriOverride === undefined ? oauthConfig.redirectUri : redirectUriOverride;
     const missingConfig = getMissingOAuthConfig(this.config, provider, redirectUriOverride);
-    if (provider === "tesla") {
+    if (provider === "tesla" && options.recordDiagnostics !== false) {
       resetTeslaOAuthFleetDiagnostics(this.config.teslaRegion, redirectUri, oauthConfig.scope.split(" "));
     }
     logger.info("Auth", `${labelProvider(provider)} OAuth start called`);
@@ -373,7 +377,7 @@ export class ProviderAuthService {
   }
 
   startTeslaDevelopmentAuthAttempt(redirectUri: string): TeslaDevelopmentAuthAttempt | null {
-    const start = this.startAuth("tesla", redirectUri);
+    const start = this.startAuth("tesla", redirectUri, { recordDiagnostics: false });
     if (start.authorizationUrl === null) {
       return null;
     }

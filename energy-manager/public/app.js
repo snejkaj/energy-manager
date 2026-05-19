@@ -519,6 +519,9 @@ try {
         setDiag("diag-tesla-vehicles-fetch", successLabel(teslaLastError.vehiclesFetchSuccess));
         setDiag("diag-tesla-vehicle-data-fetch", successLabel(teslaLastError.vehicleDataFetchSuccess));
         setDiag("diag-tesla-http-status", teslaLastError.httpStatus === null ? "None" : String(teslaLastError.httpStatus));
+        setDiag("diag-tesla-refresh-current-step", teslaLastError.refreshCurrentStep || "Unknown");
+        setDiag("diag-tesla-refresh-completed-step", teslaLastError.refreshLatestCompletedStep || "None");
+        setDiag("diag-tesla-refresh-failed-step", teslaLastError.refreshLatestFailedStep || "None");
         if (teslaLastError.safeError) {
           setDiag("diag-tesla-oauth-error", teslaLastError.safeError);
         }
