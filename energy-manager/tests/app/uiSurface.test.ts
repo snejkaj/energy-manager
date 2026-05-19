@@ -26,8 +26,18 @@ describe("Tesla UI surface", () => {
     expect(serverSource).toContain('path === "/api/connections"');
     expect(serverSource).toContain('path === "/api/auth/tesla/start"');
     expect(serverSource).toContain('path === "/api/auth/tesla/disconnect"');
+    expect(serverSource).toContain('path === "/api/providers/tesla/status"');
+    expect(serverSource).toContain('path === "/api/providers/tesla/refresh"');
+    expect(serverSource).toContain('path === "/api/debug/ping"');
     expect(serverSource).toContain('path === "/debug/tesla/manual-token-helper"');
     expect(serverSource).toContain('path === "/debug/tesla/manual-token-helper/exchange"');
+  });
+
+  it("uses internal provider API routes from the UI", () => {
+    expect(appJsSource).toContain('"/api/providers/tesla/refresh"');
+    expect(appJsSource).toContain('"/api/providers/tesla/status"');
+    expect(appJsSource).toContain('"/api/debug/ping"');
+    expect(appJsSource).not.toContain("/api/hassio_ingress/");
   });
 
   it("keeps one atomic development Tesla login attempt visible on the debug page", () => {

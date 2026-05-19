@@ -81,6 +81,7 @@ export function startServer(): void {
   const onboarding = createStartupOnboarding(config);
   logStartupDiagnostics(config);
   logIntegrationSetupStatus(config);
+  logInternalApiRouteDiagnostics(config);
   logStartupOnboarding([...onboarding.setupWarnings, ...onboarding.setupMessages]);
   assertStartupIsReady(onboarding);
 
@@ -148,6 +149,15 @@ export function startServer(): void {
       return;
     }
 
+    if (request.method === "GET" && path === "/api/debug/ping") {
+      writeJson(response, 200, {
+        ok: true,
+        ingress: isIngressModeDetected(),
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+
     if (request.method === "GET" && path === "/api/connections") {
       void getTeslaStateResponse(config, authService, false)
         .then((teslaStatus) =>
@@ -177,17 +187,29 @@ export function startServer(): void {
       return;
     }
 
-    if (request.method === "GET" && (path === "/api/tesla/state" || path === "/api/tesla/status")) {
+    if (request.method === "GET" && (
+      path === "/api/providers/tesla/status"
+      || path === "/api/tesla/state"
+      || path === "/api/tesla/status"
+    )) {
+      logger.info("BackendAPI", `Tesla status route hit: ${path}`);
       void getTeslaStateResponse(config, authService, false)
         .then((payload) => writeJson(response, 200, payload))
-        .catch((error: unknown) => writeJson(response, 200, createTeslaErrorResponse(config, error, authService)));
+        .catch((error: unknown) => {
+          lastApiError = createSupportEvent(errorMessage(error));
+          writeJson(response, 200, createTeslaErrorResponse(config, error, authService));
+        });
       return;
     }
 
-    if (request.method === "POST" && path === "/api/tesla/refresh") {
+    if (request.method === "POST" && (path === "/api/providers/tesla/refresh" || path === "/api/tesla/refresh")) {
+      logger.info("BackendAPI", `Tesla refresh route hit: ${path}`);
       void getTeslaStateResponse(config, authService, true)
         .then((payload) => writeJson(response, 200, payload))
-        .catch((error: unknown) => writeJson(response, 200, createTeslaErrorResponse(config, error, authService)));
+        .catch((error: unknown) => {
+          lastApiError = createSupportEvent(errorMessage(error));
+          writeJson(response, 200, createTeslaErrorResponse(config, error, authService));
+        });
       return;
     }
 
@@ -537,6 +559,7 @@ export function startServer(): void {
 
   server.listen(config.port, () => {
     logger.info("Server", `Smart EV Charging Optimizer listening on port ${config.port}`);
+    void runBackendSelfTest(config.port);
   });
 }
 
@@ -1390,6 +1413,34 @@ function logIntegrationSetupStatus(config: AppConfig): void {
   logger.info("TeslaConfig", `temporary development token configured=${config.teslaDevAccessToken !== null ? "yes" : "no"} length=${config.teslaDevAccessToken?.length ?? 0}`);
   logger.info("TeslaConfig", `dev mode=${config.devMode ? "yes" : "no"}`);
   logger.info("TeslaConfig", "manual token helper enabled");
+}
+
+function logInternalApiRouteDiagnostics(config: AppConfig): void {
+  logger.info("BackendAPI", "backend route mounted");
+  logger.info("BackendAPI", "route path=GET /api/providers/tesla/status");
+  logger.info("BackendAPI", "route path=POST /api/providers/tesla/refresh");
+  logger.info("BackendAPI", "route path=GET /api/debug/ping");
+  logger.info("BackendAPI", `ingress mode detected=${isIngressModeDetected() ? "yes" : "no"}`);
+  logger.info("BackendAPI", `internal API enabled=yes port=${config.port}`);
+}
+
+async function runBackendSelfTest(port: number): Promise<void> {
+  const url = `http://127.0.0.1:${port}/api/debug/ping`;
+  logger.info("BackendAPI", `self-test start ${url}`);
+  try {
+    const response = await fetch(url);
+    logger.info("BackendAPI", `self-test ${url} -> HTTP ${response.status}`);
+  } catch (error) {
+    logger.error("BackendAPI", `self-test failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+  }
+}
+
+function isIngressModeDetected(): boolean {
+  return [
+    "INGRESS_PATH",
+    "HASSIO_INGRESS_TOKEN",
+    "SUPERVISOR_TOKEN",
+  ].some((key) => process.env[key] !== undefined && process.env[key] !== "");
 }
 
 function createConfigDiagnostics(config: AppConfig, request: IncomingMessage, authService: ProviderAuthService) {
@@ -3036,6 +3087,14 @@ function renderHtml(): string {
           <dd id="diag-tesla-vehicle-data-fetch">Unknown</dd>
           <dt>Last Tesla HTTP status</dt>
           <dd id="diag-tesla-http-status">Unknown</dd>
+          <dt>Backend reachable</dt>
+          <dd id="diag-backend-reachable">Unknown</dd>
+          <dt>Ping route status</dt>
+          <dd id="diag-backend-ping-status">Unknown</dd>
+          <dt>Tesla refresh status</dt>
+          <dd id="diag-tesla-refresh-status">Unknown</dd>
+          <dt>Latest backend error</dt>
+          <dd id="diag-backend-error">None</dd>
         </dl>
         <p><a id="tesla-oauth-debug-link" href="./auth/tesla/start-debug">Open Tesla OAuth debug</a></p>
       </div>

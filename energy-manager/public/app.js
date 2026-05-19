@@ -23,6 +23,7 @@ try {
       uiLog("DOMContentLoaded");
       updateLocationDiagnostics();
       refreshConfigDiagnostics();
+      refreshBackendPing();
       document.addEventListener("click", (event) => {
         const target = event.target;
         console.log("[UI] document click", target);
@@ -274,17 +275,23 @@ try {
 
   function refreshTesla(forceRefresh) {
     showToast(forceRefresh ? "Refreshing Tesla..." : "Loading Tesla status...");
-    return fetchJson(forceRefresh ? "/api/tesla/refresh" : "/api/tesla/state", {
+    setDiag("diag-tesla-refresh-status", forceRefresh ? "refreshing" : "loading");
+    return fetchJson(forceRefresh ? "/api/providers/tesla/refresh" : "/api/providers/tesla/status", {
       method: forceRefresh ? "POST" : "GET",
     })
       .then((response) => response.json())
       .then((data) => {
         renderTeslaStatus(data);
+        setDiag("diag-tesla-refresh-status", data.connected ? "connected" : "completed with fallback");
+        refreshConfigDiagnostics();
         if (forceRefresh) {
           showToast("Tesla status refreshed");
         }
       })
-      .catch((error) => showFetchError("Could not refresh Tesla status", error));
+      .catch((error) => {
+        setDiag("diag-tesla-refresh-status", "failed");
+        return showFetchError("Could not refresh Tesla status", error);
+      });
   }
 
   function renderTeslaStatus(data) {
@@ -468,10 +475,28 @@ try {
     uiLog("fetch: " + (options && options.method ? options.method : "GET") + " " + resolvedUrl);
     return fetch(resolvedUrl, options).then((response) => {
       if (!response.ok) {
+        setDiag("diag-backend-error", resolvedUrl + " failed with HTTP " + response.status);
         throw new Error(resolvedUrl + " failed with HTTP " + response.status);
       }
       return response;
     });
+  }
+
+  function refreshBackendPing() {
+    return fetchJson("/api/debug/ping")
+      .then((response) => {
+        setDiag("diag-backend-ping-status", String(response.status));
+        return response.json();
+      })
+      .then((data) => {
+        setDiag("diag-backend-reachable", data.ok ? "yes" : "no");
+        setDiag("diag-backend-error", "None");
+      })
+      .catch((error) => {
+        setDiag("diag-backend-reachable", "no");
+        setDiag("diag-backend-ping-status", "failed");
+        setDiag("diag-backend-error", error?.message || String(error));
+      });
   }
 
   function updateLocationDiagnostics() {
