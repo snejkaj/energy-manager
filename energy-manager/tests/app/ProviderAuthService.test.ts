@@ -135,6 +135,86 @@ describe("ProviderAuthService", () => {
     expect(reloadedService.getAccessToken("tesla")).toBe("stored-access-token");
   });
 
+  it("refreshes an expired Tesla OAuth token before returning it", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        access_token: "expired-access-token",
+        refresh_token: "stored-refresh-token",
+        expires_in: -1,
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        access_token: "fresh-access-token",
+        refresh_token: "fresh-refresh-token",
+        expires_in: 3600,
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const config = loadConfig({
+      TESLA_CLIENT_ID: "client-id",
+      TESLA_CLIENT_SECRET: "secret",
+    });
+    const service = new ProviderAuthService(config);
+    const start = service.startAuth("tesla", "http://localhost:3000/api/auth/tesla/callback");
+    const state = new URL(start.authorizationUrl ?? "").searchParams.get("state");
+    await service.handleCallback("tesla", "authorization-code", state ?? "");
+
+    await expect(service.getValidAccessToken("tesla")).resolves.toBe("fresh-access-token");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [, refreshInit] = fetchMock.mock.calls[1] as unknown as [unknown, RequestInit];
+    expect(String(refreshInit.body)).toContain("grant_type=refresh_token");
+    expect(String(refreshInit.body)).toContain("refresh_token=stored-refresh-token");
+    expect(service.getTokenDiagnostics("tesla")).toMatchObject({
+      authSource: "oauth",
+      lastRefreshSuccess: true,
+      refreshHttpStatus: 200,
+      refreshSafeResponseBody: "Token refresh succeeded.",
+    });
+  });
+
+  it("disconnects Tesla OAuth when token refresh fails", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        access_token: "expired-access-token",
+        refresh_token: "stored-refresh-token",
+        expires_in: -1,
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        error: "invalid_grant",
+        error_description: "refresh token expired",
+      }), {
+        status: 401,
+        headers: { "content-type": "application/json" },
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const config = loadConfig({
+      TESLA_CLIENT_ID: "client-id",
+      TESLA_CLIENT_SECRET: "secret",
+    });
+    const service = new ProviderAuthService(config);
+    const start = service.startAuth("tesla", "http://localhost:3000/api/auth/tesla/callback");
+    const state = new URL(start.authorizationUrl ?? "").searchParams.get("state");
+    await service.handleCallback("tesla", "authorization-code", state ?? "");
+
+    await expect(service.getValidAccessToken("tesla")).rejects.toThrow("Tesla token refresh failed with HTTP 401.");
+    expect(service.getConnectionStatus("tesla").connected).toBe(false);
+    expect(service.getTokenDiagnostics("tesla")).toMatchObject({
+      authSource: "none",
+      lastRefreshSuccess: false,
+      refreshHttpStatus: 401,
+      refreshSafeResponseBody: "invalid_grant: refresh token expired",
+    });
+  });
+
   it("persists pending Tesla PKCE state for CLI-style exchange", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
       access_token: "cli-access-token",

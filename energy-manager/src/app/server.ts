@@ -279,7 +279,7 @@ export function startServer(): void {
       const authStart = authService.startAuth("tesla", callbackInfo.callbackUrl, { recordDiagnostics: false });
       const developmentAttempt = authService.startTeslaDevelopmentAuthAttempt(createTeslaDevelopmentRedirectUri(config));
       logTeslaAuthStart(authStart);
-      writeTeslaStartDebugHtml(response, config, diagnostics, authStart, developmentAttempt, authService.getPendingStateDiagnostics("tesla"), callbackInfo, createBackHref(path));
+      writeTeslaStartDebugHtml(response, config, authService, diagnostics, authStart, developmentAttempt, authService.getPendingStateDiagnostics("tesla"), callbackInfo, createBackHref(path));
       return;
     }
 
@@ -384,13 +384,14 @@ export function startServer(): void {
     if (request.method === "GET" && path === "/debug/tesla/oauth-last-error") {
       writeJson(response, 200, {
         ...getTeslaOAuthFleetLastError(),
-        oauthStatus: createTeslaOAuthStatus(),
+        ...createTeslaOAuthStatus(authService),
+        oauthStatus: createTeslaOAuthStatus(authService),
       });
       return;
     }
 
     if (request.method === "GET" && path === "/debug/tesla/oauth-status") {
-      writeJson(response, 200, createTeslaOAuthStatus());
+      writeJson(response, 200, createTeslaOAuthStatus(authService));
       return;
     }
 
@@ -438,7 +439,7 @@ export function startServer(): void {
       const authStart = authService.startAuth("tesla", callbackInfo.callbackUrl, { recordDiagnostics: false });
       const developmentAttempt = authService.startTeslaDevelopmentAuthAttempt(createTeslaDevelopmentRedirectUri(config));
       logTeslaAuthStart(authStart);
-      writeTeslaStartDebugHtml(response, config, diagnostics, authStart, developmentAttempt, authService.getPendingStateDiagnostics("tesla"), callbackInfo, createBackHref(path));
+      writeTeslaStartDebugHtml(response, config, authService, diagnostics, authStart, developmentAttempt, authService.getPendingStateDiagnostics("tesla"), callbackInfo, createBackHref(path));
       return;
     }
 
@@ -908,7 +909,7 @@ async function getVehicleState(
 }
 
 async function getTeslaVehiclesResponse(config: AppConfig, authService: ProviderAuthService) {
-  const provider = createTeslaVehicleProvider(config, authService);
+  const provider = await createTeslaVehicleProvider(config, authService);
   if (provider === null) {
     return {
       connected: false,
@@ -945,7 +946,7 @@ async function refreshTeslaVehicles(config: AppConfig, authService: ProviderAuth
     logger.info("TeslaRefresh", `token source selected=${tokenSource}`);
 
     traceTeslaRefreshStep("access_token_loaded");
-    const accessToken = authService.getAccessToken("tesla");
+    const accessToken = await authService.getValidAccessToken("tesla");
     logger.info("TeslaRefresh", `access token loaded=${accessToken === null ? "no" : "yes"}`);
     if (accessToken === null) {
       throw new Error("Tesla access token is not available.");
@@ -953,7 +954,7 @@ async function refreshTeslaVehicles(config: AppConfig, authService: ProviderAuth
 
     traceTeslaRefreshStep("fleet_api_request_prepared");
     logger.info("TeslaRefresh", "Fleet API request prepared");
-    const provider = createTeslaVehicleProvider(config, authService);
+    const provider = await createTeslaVehicleProvider(config, authService);
     if (provider === null) {
       throw new Error("Tesla provider could not be initialized.");
     }
@@ -994,7 +995,7 @@ async function refreshTeslaVehicles(config: AppConfig, authService: ProviderAuth
 }
 
 async function getTeslaStateResponse(config: AppConfig, authService: ProviderAuthService, forceRefresh: boolean) {
-  const provider = createTeslaVehicleProvider(config, authService);
+  const provider = await createTeslaVehicleProvider(config, authService);
   if (provider === null) {
     return createTeslaDemoStatus("Tesla is not connected. Click Connect Tesla to sign in.");
   }
@@ -1027,8 +1028,8 @@ function selectTeslaVehicleForTrace(vehicles: Awaited<ReturnType<TeslaVehicleSta
   return vehicles.find((vehicle) => vehicle.id_s === vehicleId || vehicle.vin === vehicleId || String(vehicle.id) === vehicleId) ?? vehicles[0] ?? null;
 }
 
-function createTeslaVehicleProvider(config: AppConfig, authService: ProviderAuthService): TeslaVehicleStateProvider | null {
-  const accessToken = authService.getAccessToken("tesla");
+async function createTeslaVehicleProvider(config: AppConfig, authService: ProviderAuthService): Promise<TeslaVehicleStateProvider | null> {
+  const accessToken = await authService.getValidAccessToken("tesla");
   if (accessToken === null) {
     return null;
   }
@@ -1701,8 +1702,9 @@ function formatTeslaLastErrorSummary(): string {
   ].join(", ");
 }
 
-function createTeslaOAuthStatus() {
+function createTeslaOAuthStatus(authService: ProviderAuthService | null = null) {
   const status = getTeslaOAuthFleetLastError();
+  const tokenDiagnostics = authService?.getTokenDiagnostics("tesla") ?? null;
   return {
     lastStep: status.lastStep,
     lastHttpStatus: status.httpStatus,
@@ -1724,6 +1726,13 @@ function createTeslaOAuthStatus() {
     refreshCurrentStep: teslaRefreshTrace.currentStep,
     refreshLatestCompletedStep: teslaRefreshTrace.latestCompletedStep,
     refreshLatestFailedStep: teslaRefreshTrace.latestFailedStep,
+    authSource: tokenDiagnostics?.authSource ?? "none",
+    tokenExpiresAt: tokenDiagnostics?.tokenExpiresAt ?? null,
+    tokenExpiresInSeconds: tokenDiagnostics?.tokenExpiresInSeconds ?? null,
+    tokenAgeSeconds: tokenDiagnostics?.tokenAgeSeconds ?? null,
+    lastRefreshSuccess: tokenDiagnostics?.lastRefreshSuccess ?? null,
+    refreshHttpStatus: tokenDiagnostics?.refreshHttpStatus ?? null,
+    refreshSafeResponseBody: tokenDiagnostics?.refreshSafeResponseBody ?? null,
   };
 }
 
@@ -2382,6 +2391,7 @@ function firstHeader(request: IncomingMessage, name: string): string | null {
 function writeTeslaStartDebugHtml(
   response: ServerResponse,
   config: AppConfig,
+  authService: ProviderAuthService,
   diagnostics: ProviderOAuthDiagnostics,
   authStart: AuthStartResult,
   developmentAttempt: TeslaDevelopmentAuthAttempt | null,
@@ -2413,7 +2423,7 @@ function writeTeslaStartDebugHtml(
     : "Development login URL was not generated.";
   const developmentRedirectUri = developmentAttempt?.redirectUri ?? "not configured";
   const developmentUsesMyHomeAssistantRedirect = developmentRedirectUri === "https://my.home-assistant.io/redirect/oauth";
-  const oauthStatus = createTeslaOAuthStatus();
+  const oauthStatus = createTeslaOAuthStatus(authService);
   const oauthStatusRows = [
     ["lastStep", oauthStatus.lastStep ?? "none"],
     ["lastHttpStatus", oauthStatus.lastHttpStatus === null ? "none" : String(oauthStatus.lastHttpStatus)],
@@ -2434,6 +2444,13 @@ function writeTeslaStartDebugHtml(
     ["refreshCurrentStep", oauthStatus.refreshCurrentStep ?? "none"],
     ["refreshLatestCompletedStep", oauthStatus.refreshLatestCompletedStep ?? "none"],
     ["refreshLatestFailedStep", oauthStatus.refreshLatestFailedStep ?? "none"],
+    ["authSource", oauthStatus.authSource ?? "none"],
+    ["tokenExpiresAt", oauthStatus.tokenExpiresAt ?? "none"],
+    ["tokenExpiresInSeconds", oauthStatus.tokenExpiresInSeconds === null ? "none" : String(oauthStatus.tokenExpiresInSeconds)],
+    ["tokenAgeSeconds", oauthStatus.tokenAgeSeconds === null ? "none" : String(oauthStatus.tokenAgeSeconds)],
+    ["lastRefreshSuccess", formatNullableBoolean(oauthStatus.lastRefreshSuccess)],
+    ["refreshHttpStatus", oauthStatus.refreshHttpStatus === null ? "none" : String(oauthStatus.refreshHttpStatus)],
+    ["refreshSafeResponseBody", oauthStatus.refreshSafeResponseBody ?? "none"],
   ].map(([key, value]) => `<dt>${escapeHtml(key)}</dt><dd>${escapeHtml(value)}</dd>`).join("");
   const escapedAuthorizationUrl = authStart.authorizationUrl === null ? "" : escapeHtml(authStart.authorizationUrl);
   const productionRedirectDiagnostics = authStart.authorizationUrl === null
@@ -3309,6 +3326,14 @@ function renderHtml(): string {
           <dd id="diag-tesla-refresh-completed-step">Unknown</dd>
           <dt>Tesla refresh latest failed step</dt>
           <dd id="diag-tesla-refresh-failed-step">None</dd>
+          <dt>Tesla auth source</dt>
+          <dd id="diag-tesla-auth-source">Unknown</dd>
+          <dt>Tesla token age</dt>
+          <dd id="diag-tesla-token-age">Unknown</dd>
+          <dt>Tesla token expiry</dt>
+          <dd id="diag-tesla-token-expiry">Unknown</dd>
+          <dt>Tesla refresh success</dt>
+          <dd id="diag-tesla-token-refresh-success">Unknown</dd>
           <dt>Latest backend error</dt>
           <dd id="diag-backend-error">None</dd>
         </dl>

@@ -27,6 +27,12 @@ export interface ProviderConnectionStatus {
   summary: string | null;
   warning: string | null;
   connectedAt: string | null;
+  tokenExpiresAt: string | null;
+  tokenExpiresInSeconds: number | null;
+  tokenAgeSeconds: number | null;
+  lastRefreshSuccess: boolean | null;
+  refreshHttpStatus: number | null;
+  refreshSafeResponseBody: string | null;
 }
 
 export interface AuthStartResult {
@@ -60,6 +66,16 @@ interface StoredProviderToken {
   expiresAt: string | null;
   connectedAt: string;
   encryptedRefreshToken: string | null;
+}
+
+export interface ProviderTokenDiagnostics {
+  authSource: "oauth" | "tesla_dev_access_token" | "environment" | "none";
+  tokenExpiresAt: string | null;
+  tokenExpiresInSeconds: number | null;
+  tokenAgeSeconds: number | null;
+  lastRefreshSuccess: boolean | null;
+  refreshHttpStatus: number | null;
+  refreshSafeResponseBody: string | null;
 }
 
 interface PendingAuthState {
@@ -121,6 +137,11 @@ export class ProviderAuthService {
   private readonly pendingStates = new Map<string, PendingAuthState>();
   private readonly tokenStorePath = resolveTokenStorePath();
   private readonly pendingAuthStorePath = resolvePendingAuthStorePath();
+  private readonly refreshDiagnostics = new Map<AuthProviderId, {
+    success: boolean | null;
+    httpStatus: number | null;
+    safeResponseBody: string | null;
+  }>();
 
   constructor(private readonly config: AppConfig) {
     this.loadPersistedTokens();
@@ -260,11 +281,13 @@ export class ProviderAuthService {
   async refreshToken(provider: AuthProviderId): Promise<ProviderConnectionStatus> {
     const currentToken = this.tokens.get(provider);
     if (currentToken?.refreshToken === null || currentToken?.refreshToken === undefined) {
+      this.recordRefreshDiagnostics(provider, null, null, "No refresh token is stored.");
       return this.getConnectionStatus(provider);
     }
 
     const oauthConfig = getOAuthConfig(this.config, provider);
     if (oauthConfig.clientId === null || oauthConfig.clientSecret === null) {
+      this.recordRefreshDiagnostics(provider, null, null, "OAuth client id or secret is missing.");
       return this.getConnectionStatus(provider);
     }
 
@@ -286,10 +309,28 @@ export class ProviderAuthService {
     });
 
     if (!response.ok) {
+      const responseText = await response.text();
+      const safeResponseBody = sanitizeTeslaError(responseText);
+      this.recordRefreshDiagnostics(provider, false, response.status, safeResponseBody);
+      if (provider === "tesla") {
+        recordTeslaStepResult({
+          step: "token_exchange",
+          endpoint: oauthConfig.tokenEndpoint,
+          ok: false,
+          httpStatus: response.status,
+          safeError: `Tesla token refresh failed with HTTP ${response.status}.`,
+          safeResponseBody: responseText,
+          scopesRequested: oauthConfig.scope.split(" "),
+          region: this.config.teslaRegion,
+        });
+      }
+      this.disconnect(provider);
       throw new Error(`${labelProvider(provider)} token refresh failed with HTTP ${response.status}.`);
     }
 
-    this.storeToken(provider, await response.json() as OAuthTokenResponse);
+    const tokenResponse = await response.json() as OAuthTokenResponse;
+    this.storeToken(provider, tokenResponse, currentToken.refreshToken);
+    this.recordRefreshDiagnostics(provider, true, response.status, "Token refresh succeeded.");
     return this.getConnectionStatus(provider);
   }
 
@@ -333,6 +374,14 @@ export class ProviderAuthService {
             ? setupMessages.join(". ")
             : "Tesla is not connected. Demo vehicle data is used for planning.",
       connectedAt: token?.connectedAt ?? null,
+      tokenExpiresAt: token?.expiresAt ?? null,
+      tokenExpiresInSeconds: token?.expiresAt === null || token?.expiresAt === undefined
+        ? null
+        : Math.max(0, Math.floor((Date.parse(token.expiresAt) - Date.now()) / 1000)),
+      tokenAgeSeconds: token === undefined ? null : Math.max(0, Math.floor((Date.now() - Date.parse(token.connectedAt)) / 1000)),
+      lastRefreshSuccess: this.refreshDiagnostics.get(provider)?.success ?? null,
+      refreshHttpStatus: this.refreshDiagnostics.get(provider)?.httpStatus ?? null,
+      refreshSafeResponseBody: this.refreshDiagnostics.get(provider)?.safeResponseBody ?? null,
     };
   }
 
@@ -342,6 +391,35 @@ export class ProviderAuthService {
 
   getAccessToken(provider: AuthProviderId): string | null {
     return this.tokens.get(provider)?.accessToken ?? getEnvironmentToken(this.config, provider);
+  }
+
+  async getValidAccessToken(provider: AuthProviderId): Promise<string | null> {
+    const token = this.tokens.get(provider);
+    if (token === undefined) {
+      return getEnvironmentToken(this.config, provider);
+    }
+
+    if (!isStoredTokenExpired(token)) {
+      return token.accessToken;
+    }
+
+    logger.info("Auth", `${labelProvider(provider)} access token expired; refreshing.`);
+    await this.refreshToken(provider);
+    return this.tokens.get(provider)?.accessToken ?? null;
+  }
+
+  getTokenDiagnostics(provider: AuthProviderId): ProviderTokenDiagnostics {
+    const status = this.getConnectionStatus(provider);
+    const refresh = this.refreshDiagnostics.get(provider);
+    return {
+      authSource: status.tokenSource ?? "none",
+      tokenExpiresAt: status.tokenExpiresAt,
+      tokenExpiresInSeconds: status.tokenExpiresInSeconds,
+      tokenAgeSeconds: status.tokenAgeSeconds,
+      lastRefreshSuccess: refresh?.success ?? status.lastRefreshSuccess,
+      refreshHttpStatus: refresh?.httpStatus ?? status.refreshHttpStatus,
+      refreshSafeResponseBody: refresh?.safeResponseBody ?? status.refreshSafeResponseBody,
+    };
   }
 
   isUsingTemporaryTeslaAccessToken(): boolean {
@@ -433,6 +511,7 @@ export class ProviderAuthService {
     const tokenResponse = await this.exchangeCode("tesla", code, pendingState);
     this.pendingStates.delete(state);
     this.persistPendingStates();
+    this.storeToken("tesla", tokenResponse);
     return {
       accessToken: tokenResponse.access_token,
       refreshToken: tokenResponse.refresh_token ?? null,
@@ -452,6 +531,7 @@ export class ProviderAuthService {
       codeVerifier,
       redirectUri,
     });
+    this.storeToken("tesla", tokenResponse);
     return {
       accessToken: tokenResponse.access_token,
       refreshToken: tokenResponse.refresh_token ?? null,
@@ -531,19 +611,33 @@ export class ProviderAuthService {
     return await response.json() as OAuthTokenResponse;
   }
 
-  private storeToken(provider: AuthProviderId, tokenResponse: OAuthTokenResponse): void {
+  private storeToken(provider: AuthProviderId, tokenResponse: OAuthTokenResponse, fallbackRefreshToken: string | null = null): void {
     const connectedAt = new Date().toISOString();
+    const refreshToken = tokenResponse.refresh_token ?? fallbackRefreshToken;
     this.tokens.set(provider, {
       provider,
       accessToken: tokenResponse.access_token,
-      refreshToken: tokenResponse.refresh_token ?? null,
-      encryptedRefreshToken: tokenResponse.refresh_token === undefined ? null : encryptToken(tokenResponse.refresh_token, this.config.tokenEncryptionKey),
+      refreshToken,
+      encryptedRefreshToken: refreshToken === null ? null : encryptToken(refreshToken, this.config.tokenEncryptionKey),
       expiresAt: tokenResponse.expires_in === undefined
         ? null
         : new Date(Date.now() + tokenResponse.expires_in * 1000).toISOString(),
       connectedAt,
     });
     this.persistTokens();
+  }
+
+  private recordRefreshDiagnostics(
+    provider: AuthProviderId,
+    success: boolean | null,
+    httpStatus: number | null,
+    safeResponseBody: string | null,
+  ): void {
+    this.refreshDiagnostics.set(provider, {
+      success,
+      httpStatus,
+      safeResponseBody,
+    });
   }
 
   private loadPersistedTokens(): void {
@@ -752,6 +846,14 @@ function resolvePendingAuthStorePath(): string {
 
 function isPendingStateExpired(pendingState: PendingAuthState): boolean {
   return Date.now() - Date.parse(pendingState.createdAt) > pendingAuthMaxAgeMs;
+}
+
+function isStoredTokenExpired(token: StoredProviderToken): boolean {
+  if (token.expiresAt === null) {
+    return false;
+  }
+
+  return Date.parse(token.expiresAt) - Date.now() <= 60_000;
 }
 
 function maskState(state: string): string {

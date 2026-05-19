@@ -522,6 +522,10 @@ try {
         setDiag("diag-tesla-refresh-current-step", teslaLastError.refreshCurrentStep || "Unknown");
         setDiag("diag-tesla-refresh-completed-step", teslaLastError.refreshLatestCompletedStep || "None");
         setDiag("diag-tesla-refresh-failed-step", teslaLastError.refreshLatestFailedStep || "None");
+        setDiag("diag-tesla-auth-source", teslaLastError.authSource || teslaLastError.oauthStatus?.authSource || "Unknown");
+        setDiag("diag-tesla-token-age", formatSeconds(teslaLastError.tokenAgeSeconds ?? teslaLastError.oauthStatus?.tokenAgeSeconds));
+        setDiag("diag-tesla-token-expiry", teslaLastError.tokenExpiresAt || teslaLastError.oauthStatus?.tokenExpiresAt || "Unknown");
+        setDiag("diag-tesla-token-refresh-success", successLabel(teslaLastError.lastRefreshSuccess ?? teslaLastError.oauthStatus?.lastRefreshSuccess));
         if (teslaLastError.safeError) {
           setDiag("diag-tesla-oauth-error", teslaLastError.safeError);
         }
@@ -660,6 +664,10 @@ try {
     if (value === true) return "success";
     if (value === false) return "fail";
     return "not run";
+  }
+
+  function formatSeconds(value) {
+    return value === null || value === undefined ? "Unknown" : value + "s";
   }
 
   let toastTimer;
