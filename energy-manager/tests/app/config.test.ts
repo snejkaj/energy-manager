@@ -137,4 +137,18 @@ describe("loadConfig", () => {
     expect(config.teslaOAuthClientId).toBeNull();
     expect(config.teslaOAuthClientSecret).toBeNull();
   });
+  it("keeps departure as a local clock time and uses the configured time zone", () => {
+    const config = loadConfig({ DEPARTURE_TIME: "07:30", TZ: "Europe/Stockholm" });
+
+    expect(config.departureClockTime).toBe("07:30");
+    expect(config.timeZone).toBe("Europe/Stockholm");
+  });
+
+  it("falls back to safe departure and time zone defaults", () => {
+    const config = loadConfig({ DEPARTURE_TIME: "25:00", TZ: "Not/AZone" });
+
+    expect(config.departureClockTime).toBe("08:00");
+    expect(config.timeZone).toBe("Europe/Stockholm");
+    expect(config.setupNotes).toContain("Departure time is not valid. 08:00 is used.");
+  });
 });

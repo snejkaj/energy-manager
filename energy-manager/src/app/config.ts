@@ -1,5 +1,9 @@
 // Requirements: CFG-001, CFG-002, CFG-003, CFG-004, CFG-005, CFG-006, CFG-007, ONB-001, ONB-003
 
+import { isValidClockTime, isValidTimeZone } from "../charging/Departure.js";
+
+const DEFAULT_TIME_ZONE = "Europe/Stockholm";
+
 export interface AppConfig {
   port: number;
   databaseUrl: string | null;
@@ -34,7 +38,10 @@ export interface AppConfig {
   weatherLongitude: number | null;
   solarPanelTiltDegrees: number | null;
   solarPanelAzimuthDegrees: number | null;
-  departureTime: string;
+  /** Local wall-clock departure time, "HH:MM". Resolved to a timestamp per request. */
+  departureClockTime: string;
+  /** IANA time zone used to interpret departureClockTime. */
+  timeZone: string;
   minimumSocPercent: number;
   maximumSocPercent: number;
   batteryCapacityKwh: number;
@@ -80,7 +87,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     weatherLongitude: parseOptionalNumber(env.WEATHER_LONGITUDE, "weather longitude", setupNotes),
     solarPanelTiltDegrees: parseOptionalNumber(env.SOLAR_PANEL_TILT_DEGREES, "solar panel tilt", setupNotes),
     solarPanelAzimuthDegrees: parseOptionalNumber(env.SOLAR_PANEL_AZIMUTH_DEGREES, "solar panel azimuth", setupNotes),
-    departureTime: parseDepartureTime(env.DEPARTURE_TIME, setupNotes),
+    departureClockTime: parseDepartureClockTime(env.DEPARTURE_TIME, setupNotes),
+    timeZone: parseTimeZone(env.TZ, setupNotes),
     minimumSocPercent: parseNumberWithDefault(env.MINIMUM_SOC_PERCENT, 65, "minimum SOC", setupNotes),
     maximumSocPercent: parseNumberWithDefault(env.MAXIMUM_SOC_PERCENT, 80, "maximum SOC", setupNotes),
     batteryCapacityKwh: parseNumberWithDefault(env.BATTERY_CAPACITY_KWH, 75, "battery capacity", setupNotes),
@@ -226,18 +234,20 @@ function parseOptionalNumber(value: string | undefined, label: string, setupNote
   return numberValue;
 }
 
-function parseDepartureTime(value: string | undefined, setupNotes: string[]): string {
+function parseDepartureClockTime(value: string | undefined, setupNotes: string[]): string {
   const time = value === undefined || value.trim() === "" || value.trim() === "null" ? "08:00" : value.trim();
-  if (!/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(time)) {
+  if (!isValidClockTime(time)) {
     setupNotes.push("Departure time is not valid. 08:00 is used.");
-    return parseDepartureTime("08:00", []);
+    return "08:00";
   }
+  return time;
+}
 
-  const [hours, minutes] = time.split(":").map(Number);
-  const departure = new Date();
-  departure.setUTCHours(hours ?? 8, minutes ?? 0, 0, 0);
-  if (departure.getTime() <= Date.now()) {
-    departure.setUTCDate(departure.getUTCDate() + 1);
+function parseTimeZone(value: string | undefined, setupNotes: string[]): string {
+  const timeZone = value === undefined || value.trim() === "" ? DEFAULT_TIME_ZONE : value.trim();
+  if (!isValidTimeZone(timeZone)) {
+    setupNotes.push(`Time zone "${timeZone}" is not recognized. ${DEFAULT_TIME_ZONE} is used.`);
+    return DEFAULT_TIME_ZONE;
   }
-  return departure.toISOString();
+  return timeZone;
 }

@@ -31,6 +31,8 @@ export interface ChargingSlot {
   energyKwh: number;
   price: number;
   estimatedCost: number;
+  /** false when no price data covered this slot (price and estimatedCost are then 0). */
+  priceKnown?: boolean;
 }
 
 export interface ChargingPlan {

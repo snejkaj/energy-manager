@@ -11,7 +11,8 @@ LABEL \
   io.hass.type="app" \
   io.hass.arch="${BUILD_ARCH}"
 
-RUN apk add --no-cache nodejs npm
+# icu-data-full: time zone support for departure times (TZ is set by the Supervisor).
+RUN apk add --no-cache nodejs npm icu-data-full
 
 WORKDIR /app
 
