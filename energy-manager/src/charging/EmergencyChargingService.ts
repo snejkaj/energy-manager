@@ -32,6 +32,8 @@ export interface EmergencyChargingPlan {
   deficitKwh: number;
   deficitSocPercent: number;
   currency: string | null;
+  /** True when some charging time has no price data; estimatedCost then excludes that time. */
+  priceDataIncomplete: boolean;
   reason: Array<(typeof EMERGENCY_REASONS)[number]>;
 }
 
@@ -42,8 +44,13 @@ export class EmergencyChargingService {
     const emergencyTarget = createEmergencyTarget(input.target);
     const fastestPlan = calculateFastestPlan(input.now, input.prices, emergencyTarget);
     const optimalPlan = calculateChargingPlan(input.prices, emergencyTarget);
-    const completionEstimate = estimateCompletionForTarget(input.now, emergencyTarget);
-    const startTime = fastestPlan.slots[0]?.startsAt ?? input.now;
+    // Use effective power (incl. efficiency) so the estimate matches the plan's slots.
+    const completionEstimate = estimateCompletionForTarget(input.now, {
+      ...emergencyTarget,
+      chargerPowerKw: emergencyTarget.chargerPowerKw * emergencyTarget.chargingEfficiency,
+    });
+    const startTime = input.now;
+    const priceDataIncomplete = fastestPlan.slots.some((slot) => slot.priceKnown === false);
     const warning = fastestPlan.feasible
       ? null
       : "Not enough time to reach 100% before departure.";
@@ -68,6 +75,7 @@ export class EmergencyChargingService {
       deficitKwh: fastestPlan.deficitKwh,
       deficitSocPercent: fastestPlan.deficitSocPercent,
       currency: fastestPlan.currency,
+      priceDataIncomplete,
       reason: [...EMERGENCY_REASONS],
     };
   }
@@ -92,6 +100,12 @@ function createEmergencyTarget(target: ChargingTarget): ChargingTarget {
   };
 }
 
+/**
+ * "Charge to 100%" charges continuously from `now` until the battery is full.
+ * It never waits for prices and never stops at departure: price data only
+ * annotates cost. Segments without price data are priced as unknown (cost 0,
+ * flagged by `priceKnown: false`) so the plan is always available.
+ */
 function calculateFastestPlan(
   now: string,
   prices: PriceInterval[],
@@ -99,62 +113,71 @@ function calculateFastestPlan(
 ): ChargingPlan {
   const nowMs = Date.parse(now);
   const departureMs = Date.parse(target.departureTime);
-  const currentOrFuturePrices = prices
-    .filter((price) => Date.parse(price.endsAt) > nowMs && Date.parse(price.startsAt) < departureMs)
-    .map((price) => ({
-      ...price,
-      startsAt: new Date(Math.max(Date.parse(price.startsAt), nowMs)).toISOString(),
-      endsAt: new Date(Math.min(Date.parse(price.endsAt), departureMs)).toISOString(),
-    }))
-    .sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt));
-
-  return calculateChronologicalPlan(currentOrFuturePrices, target);
-}
-
-function calculateChronologicalPlan(prices: PriceInterval[], target: ChargingTarget): ChargingPlan {
+  const effectivePowerKw = target.chargerPowerKw * target.chargingEfficiency;
   const requiredSocPercent = Math.max(0, target.minSocPercent - target.currentSocPercent);
   const requiredEnergyKwh = (requiredSocPercent / 100) * target.batteryCapacityKwh;
-  const currency = prices[0]?.currency ?? null;
-  const slots: ChargingSlot[] = [];
-  let remainingEnergyKwh = requiredEnergyKwh;
+  const endMs = nowMs + (requiredEnergyKwh / effectivePowerKw) * 3_600_000;
+  const sortedPrices = prices
+    .filter((price) => Date.parse(price.endsAt) > nowMs && Date.parse(price.startsAt) < endMs)
+    .sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt));
+  const currency = sortedPrices[0]?.currency ?? prices[0]?.currency ?? null;
 
-  for (const price of prices) {
-    if (remainingEnergyKwh <= 0) {
+  const slots: ChargingSlot[] = [];
+  let cursorMs = nowMs;
+  for (const price of sortedPrices) {
+    if (cursorMs >= endMs) {
       break;
     }
-
-    const durationHoursAvailable = (Date.parse(price.endsAt) - Date.parse(price.startsAt)) / 3_600_000;
-    const deliverableEnergyKwh = durationHoursAvailable * target.chargerPowerKw * target.chargingEfficiency;
-    const energyKwh = Math.min(remainingEnergyKwh, deliverableEnergyKwh);
-    const durationHours = energyKwh / (target.chargerPowerKw * target.chargingEfficiency);
-
-    slots.push({
-      startsAt: price.startsAt,
-      endsAt: new Date(Date.parse(price.startsAt) + durationHours * 3_600_000).toISOString(),
-      durationHours: round(durationHours),
-      energyKwh: round(energyKwh),
-      price: price.total,
-      estimatedCost: round(energyKwh * price.total),
-    });
-
-    remainingEnergyKwh -= energyKwh;
+    const priceStartMs = Math.max(Date.parse(price.startsAt), cursorMs);
+    const priceEndMs = Math.min(Date.parse(price.endsAt), endMs);
+    if (priceEndMs <= cursorMs) {
+      continue;
+    }
+    if (priceStartMs > cursorMs) {
+      slots.push(createSlot(cursorMs, priceStartMs, effectivePowerKw, null));
+    }
+    slots.push(createSlot(priceStartMs, priceEndMs, effectivePowerKw, price.total));
+    cursorMs = priceEndMs;
+  }
+  if (cursorMs < endMs) {
+    slots.push(createSlot(cursorMs, endMs, effectivePowerKw, null));
   }
 
-  const plannedEnergyKwh = sum(slots.map((slot) => slot.energyKwh));
+  const plannedEnergyKwh = requiredEnergyKwh;
   const estimatedCost = sum(slots.map((slot) => slot.estimatedCost));
-  const deficitKwh = Math.max(0, requiredEnergyKwh - plannedEnergyKwh);
-  const resultingSocPercent = target.currentSocPercent + (plannedEnergyKwh / target.batteryCapacityKwh) * 100;
+  const energyBeforeDepartureKwh = Math.min(
+    requiredEnergyKwh,
+    Math.max(0, ((departureMs - nowMs) / 3_600_000) * effectivePowerKw),
+  );
+  const deficitKwh = Math.max(0, requiredEnergyKwh - energyBeforeDepartureKwh);
 
   return {
     feasible: deficitKwh <= 0.000001,
     slots,
     plannedEnergyKwh: round(plannedEnergyKwh),
     estimatedCost: round(estimatedCost),
-    resultingSocPercent: round(resultingSocPercent),
+    resultingSocPercent: round(target.currentSocPercent + (plannedEnergyKwh / target.batteryCapacityKwh) * 100),
     deficitKwh: round(deficitKwh),
     deficitSocPercent: round((deficitKwh / target.batteryCapacityKwh) * 100),
     currency,
   };
+}
+
+function createSlot(startMs: number, endMs: number, effectivePowerKw: number, price: number | null): ChargingSlot {
+  const durationHours = (endMs - startMs) / 3_600_000;
+  const energyKwh = durationHours * effectivePowerKw;
+  const slot: ChargingSlot = {
+    startsAt: new Date(startMs).toISOString(),
+    endsAt: new Date(endMs).toISOString(),
+    durationHours: round(durationHours),
+    energyKwh: round(energyKwh),
+    price: price ?? 0,
+    estimatedCost: price === null ? 0 : round(energyKwh * price),
+  };
+  if (price === null) {
+    slot.priceKnown = false;
+  }
+  return slot;
 }
 
 function sum(values: number[]): number {

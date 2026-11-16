@@ -6,7 +6,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { calculateChargingPlan } from "../charging/ChargingOptimizer.js";
-import { EmergencyChargingService } from "../charging/EmergencyChargingService.js";
+import { resolveNextDeparture } from "../charging/Departure.js";
+import { EmergencyChargingService, type EmergencyChargingPlan } from "../charging/EmergencyChargingService.js";
 import { estimateCompletionForTarget } from "../charging/CompletionEstimator.js";
 import type { ChargingPlan, ChargingTarget, HomeTelemetry, PriceInterval } from "../charging/types.js";
 import { applyUserModePolicy } from "../charging/UserModePolicy.js";
@@ -33,6 +34,7 @@ import {
 } from "./auth/ProviderAuthService.js";
 import { computePkceChallenge } from "./auth/Pkce.js";
 import { loadConfig, type AppConfig } from "./config.js";
+import { EmergencyOverrideStore } from "./EmergencyOverrideStore.js";
 import { logger } from "./logger.js";
 import { assertStartupIsReady, createStartupOnboarding, type StartupOnboarding } from "./onboarding.js";
 
@@ -126,7 +128,16 @@ export function startServer(): void {
   const authService = new ProviderAuthService(config);
   void validateTeslaDevelopmentTokenAtStartup(config, authService);
   const supportExplainer = new RuleBasedSupportExplainer();
-  let emergencyOverrideActive = false;
+  const emergencyOverrideStore = EmergencyOverrideStore.fromEnv();
+  let emergencyOverrideActive = emergencyOverrideStore.load().active;
+  if (emergencyOverrideActive) {
+    logger.warn("Emergency", "Charge to 100% was active before restart and remains active.");
+  }
+  const setEmergencyOverride = (active: boolean): void => {
+    emergencyOverrideActive = active;
+    emergencyOverrideStore.save({ active, changedAt: new Date().toISOString() });
+    logger.info("Emergency", active ? "Charge to 100% activated by user." : "Charge to 100% cancelled by user.");
+  };
   let lastApiError: SupportEvent | null = null;
   let lastOAuthError: SupportEvent | null = null;
   const lastBuildConfigWarning = createLastBuildConfigWarning(config, onboarding);
@@ -577,7 +588,25 @@ export function startServer(): void {
         return;
       }
 
-      emergencyOverrideActive = true;
+      setEmergencyOverride(true);
+      void createPlanResponse(config, onboarding, createProviderRegistry(config, authService), emergencyOverrideActive)
+        .then((planResponse) => writeJson(response, 200, planResponse))
+        .catch((error: unknown) => {
+          lastApiError = createSupportEvent(errorMessage(error));
+          writeJson(response, 500, {
+            error: errorMessage(error),
+          });
+        });
+      return;
+    }
+
+    if (path === "/api/emergency-charge/cancel") {
+      if (request.method !== "POST") {
+        writeJson(response, 405, { error: "Use POST to cancel emergency charging." });
+        return;
+      }
+
+      setEmergencyOverride(false);
       void createPlanResponse(config, onboarding, createProviderRegistry(config, authService), emergencyOverrideActive)
         .then((planResponse) => writeJson(response, 200, planResponse))
         .catch((error: unknown) => {
@@ -695,29 +724,43 @@ async function createPlanResponse(
   onboarding: StartupOnboarding,
   registry: ProviderRegistry,
   emergencyOverrideActive: boolean,
+  now: string = new Date().toISOString(),
 ): Promise<PlanResponse> {
   const providerWarnings: string[] = [];
   const vehicleState = await getVehicleState(config, registry, providerWarnings);
   const priceProvider = registry.getElectricityPriceProvider(config.electricityPriceProvider);
   if (priceProvider === null) {
-    return createDemoPlanResponse(config, onboarding, emergencyOverrideActive, vehicleState, providerWarnings);
+    return withLiveEmergencyForRealVehicle(
+      createDemoPlanResponse(config, onboarding, emergencyOverrideActive, now, vehicleState, providerWarnings),
+      config,
+      now,
+      vehicleState,
+    );
   }
 
   if (config.tibberAccessToken === null) {
-    return createDemoPlanResponse(config, onboarding, emergencyOverrideActive, vehicleState, providerWarnings);
+    return withLiveEmergencyForRealVehicle(
+      createDemoPlanResponse(config, onboarding, emergencyOverrideActive, now, vehicleState, providerWarnings),
+      config,
+      now,
+      vehicleState,
+    );
   }
 
-  const target = createChargingTarget(config);
+  const target = createChargingTarget(config, now);
+  const liveTarget = applyVehicleStateToTarget(target, vehicleState);
   const homeTelemetry = await getHomeTelemetry(config, registry, providerWarnings);
-  const priceQuery = createPriceQuery(target);
+  const priceQuery = createPriceQuery(target, now);
   let providerPrices: PriceInterval[];
   try {
     providerPrices = await priceProvider.getPrices(priceQuery);
   } catch (error) {
     logger.error("Tibber", `Tibber price data could not be loaded: ${error instanceof Error ? error.message : "Unknown error"}`);
-    const demoResponse = createDemoPlanResponse(config, onboarding, emergencyOverrideActive, vehicleState, providerWarnings);
+    const demoResponse = createDemoPlanResponse(config, onboarding, emergencyOverrideActive, now, vehicleState, providerWarnings);
     return {
       ...demoResponse,
+      // Charge to 100% must work without price data: plan it on the real target.
+      ...(emergencyOverrideActive ? createLiveEmergencyResponseParts(now, liveTarget, []) : {}),
       providerWarnings: [
         `Tibber price data could not be loaded: ${error instanceof Error ? error.message : "Unknown error"}`,
         ...demoResponse.providerWarnings,
@@ -726,56 +769,36 @@ async function createPlanResponse(
   }
   if (providerPrices.length === 0) {
     providerWarnings.push("Tibber returned no upcoming price intervals; demo prices are shown.");
-    const demoResponse = createDemoPlanResponse(config, onboarding, emergencyOverrideActive, vehicleState, providerWarnings);
+    const demoResponse = createDemoPlanResponse(config, onboarding, emergencyOverrideActive, now, vehicleState, providerWarnings);
     return {
       ...demoResponse,
+      ...(emergencyOverrideActive ? createLiveEmergencyResponseParts(now, liveTarget, []) : {}),
       providerWarnings,
     };
   }
   const currentPrice = await getCurrentPrice(priceProvider, providerPrices, providerWarnings);
-  const liveTarget = applyVehicleStateToTarget(target, vehicleState);
   const modeResult = applyUserModePolicy({
     target: liveTarget,
     mode: config.userMode,
   });
   const normalPlan = calculateChargingPlan(providerPrices, modeResult.target);
-  const emergencyPlan = emergencyOverrideActive
-    ? new EmergencyChargingService().calculate({
-        now: providerPrices[0]?.startsAt ?? "2026-05-05T00:00:00.000Z",
-        target: liveTarget,
-        prices: providerPrices,
-      })
+  const emergencyParts = emergencyOverrideActive
+    ? createLiveEmergencyResponseParts(now, liveTarget, providerPrices)
     : null;
-  const plan = emergencyPlan === null ? normalPlan : emergencyPlan;
-  const planReasons =
-    emergencyPlan === null
-      ? modeResult.reason.slice(0, 4)
-      : [...emergencyPlan.reason, "planning_only_no_hardware_control"].slice(0, 4);
+  const plan = emergencyParts?.plan ?? normalPlan;
+  const planReasons = emergencyParts?.planReasons ?? modeResult.reason.slice(0, 4);
   const completion =
-    emergencyPlan === null
-      ? estimateCompletionForTarget(
-          plan.slots[0]?.startsAt ?? providerPrices[0]?.startsAt ?? "2026-05-05T00:00:00.000Z",
-          modeResult.target,
-          undefined,
-          homeTelemetry,
-        )
-      : {
-          approximate: true as const,
-          estimatedCompletionTime: emergencyPlan.estimatedCompletionTime,
-          estimatedCompletionTimeMin: emergencyPlan.estimatedCompletionTimeMin,
-          estimatedCompletionTimeMax: emergencyPlan.estimatedCompletionTimeMax,
-          remainingEnergyKwh: emergencyPlan.plannedEnergyKwh + emergencyPlan.deficitKwh,
-          effectivePowerKw: liveTarget.chargerPowerKw,
-          timeNeededHours:
-            (Date.parse(emergencyPlan.estimatedCompletionTime) -
-              Date.parse(providerPrices[0]?.startsAt ?? "2026-05-05T00:00:00.000Z")) /
-            3_600_000,
-          reason: [
-            "approximate_completion_estimate",
-            "user_requested_100_percent",
-            "planning_only_no_hardware_control",
-          ],
-        };
+    emergencyParts?.completion ??
+    estimateCompletionForTarget(
+      plan.slots[0]?.startsAt ?? now,
+      modeResult.target,
+      undefined,
+      homeTelemetry,
+    );
+  const chargingWindow = emergencyParts?.chargingWindow ?? {
+    startsAt: plan.slots[0]?.startsAt ?? null,
+    endsAt: plan.slots.at(-1)?.endsAt ?? null,
+  };
 
   return {
     currentPrice: currentPrice ?? providerPrices[0] ?? price("2026-05-05T00:00:00.000Z", 0),
@@ -786,10 +809,7 @@ async function createPlanResponse(
       title: "Next drive",
       startsAt: target.departureTime,
     },
-    chargingWindow: {
-      startsAt: plan.slots[0]?.startsAt ?? null,
-      endsAt: plan.slots.at(-1)?.endsAt ?? null,
-    },
+    chargingWindow,
     completion,
     dailyFeedback: analyzeOutcomes(dailyOutcomes),
     onboarding: createOnboardingResponse(onboarding, vehicleState),
@@ -814,11 +834,12 @@ function createDemoPlanResponse(
   config: AppConfig,
   onboarding: StartupOnboarding,
   emergencyOverrideActive: boolean,
+  now: string,
   liveVehicleState: VehicleState | null = null,
   providerWarnings: string[] = [],
 ): PlanResponse {
   const modeResult = applyUserModePolicy({
-    target: createChargingTarget(config),
+    target: createChargingTarget(config, now),
     mode: config.userMode,
   });
   const plan = emergencyOverrideActive ? createDemoEmergencyPlan() : createDemoChargingPlan();
@@ -862,6 +883,51 @@ function createDemoPlanResponse(
     ],
     emergencyOverrideActive,
     plan,
+  };
+}
+
+function withLiveEmergencyForRealVehicle(
+  response: PlanResponse,
+  config: AppConfig,
+  now: string,
+  vehicleState: VehicleState | null,
+): PlanResponse {
+  if (!response.emergencyOverrideActive || vehicleState === null) {
+    return response;
+  }
+  const liveTarget = applyVehicleStateToTarget(createChargingTarget(config, now), vehicleState);
+  return { ...response, ...createLiveEmergencyResponseParts(now, liveTarget, []) };
+}
+
+type LiveEmergencyResponseParts = Pick<PlanResponse, "plan" | "planReasons" | "completion" | "chargingWindow">;
+
+function createLiveEmergencyResponseParts(
+  now: string,
+  target: ChargingTarget,
+  prices: PriceInterval[],
+): LiveEmergencyResponseParts {
+  const emergencyPlan: EmergencyChargingPlan = new EmergencyChargingService().calculate({ now, target, prices });
+  const reasons: string[] = [...emergencyPlan.reason, "planning_only_no_hardware_control"];
+  if (emergencyPlan.priceDataIncomplete) {
+    reasons.push("price_data_incomplete");
+  }
+  return {
+    plan: emergencyPlan,
+    planReasons: reasons.slice(0, 4),
+    chargingWindow: {
+      startsAt: emergencyPlan.slots[0]?.startsAt ?? null,
+      endsAt: emergencyPlan.slots.at(-1)?.endsAt ?? null,
+    },
+    completion: {
+      approximate: true,
+      estimatedCompletionTime: emergencyPlan.estimatedCompletionTime,
+      estimatedCompletionTimeMin: emergencyPlan.estimatedCompletionTimeMin,
+      estimatedCompletionTimeMax: emergencyPlan.estimatedCompletionTimeMax,
+      remainingEnergyKwh: emergencyPlan.plannedEnergyKwh,
+      effectivePowerKw: target.chargerPowerKw * target.chargingEfficiency,
+      timeNeededHours: (Date.parse(emergencyPlan.estimatedCompletionTime) - Date.parse(now)) / 3_600_000,
+      reason: ["approximate_completion_estimate", "user_requested_100_percent", "planning_only_no_hardware_control"],
+    },
   };
 }
 
@@ -1250,8 +1316,8 @@ function getTibberHomeSelectionInfo(
   return provider instanceof TibberPriceProvider ? provider.getLastHomeSelectionInfo() : null;
 }
 
-function createPriceQuery(target: ChargingTarget): { startsAt: string; endsAt: string } {
-  const now = new Date();
+function createPriceQuery(target: ChargingTarget, nowIso: string): { startsAt: string; endsAt: string } {
+  const now = new Date(nowIso);
   now.setMinutes(0, 0, 0);
   return {
     startsAt: now.toISOString(),
@@ -1361,9 +1427,10 @@ function createOnboardingResponse(onboarding: StartupOnboarding, vehicleState: V
   };
 }
 
-function createChargingTarget(config: AppConfig): ChargingTarget {
+function createChargingTarget(config: AppConfig, now: string): ChargingTarget {
   return {
-    departureTime: config.departureTime,
+    // Resolved per request so the departure never goes stale after it passes.
+    departureTime: resolveNextDeparture(config.departureClockTime, now, config.timeZone),
     currentSocPercent: 42,
     minSocPercent: config.minimumSocPercent,
     maxSocPercent: config.maximumSocPercent,
@@ -3467,6 +3534,7 @@ function renderHtml(): string {
 
       <div class="actions">
         <button class="primary" type="button" id="charge-100">Charge to 100%</button>
+        <button type="button" id="cancel-charge-100" hidden>Cancel Charge to 100%</button>
         <div class="secondary-row">
           <button type="button" id="change-departure">Change departure</button>
           <button type="button" id="charge-now">Charge now</button>

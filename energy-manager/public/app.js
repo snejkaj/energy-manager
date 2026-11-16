@@ -70,6 +70,22 @@ try {
     );
 
     bindButton(
+      "cancel-charge-100",
+      "Cancel Charge to 100%",
+      () => {
+        showToast("Returning to normal plan...");
+        return fetchJson("/api/emergency-charge/cancel", { method: "POST" })
+          .then((response) => response.json())
+          .then((data) => {
+            renderPlan(data);
+            showToast("Charge to 100% cancelled");
+          })
+          .catch((error) => showFetchError("Could not cancel Charge to 100%", error));
+      },
+      { required: false },
+    );
+
+    bindButton(
       "charge-now",
       "Charge now",
       () => {
@@ -148,6 +164,10 @@ try {
   }
 
   function renderPlan(data) {
+    const cancelButton = document.getElementById("cancel-charge-100");
+    if (cancelButton) {
+      cancelButton.hidden = !data.emergencyOverrideActive;
+    }
     document.getElementById("ready").textContent = "Ready by " + formatTime(data.completion.estimatedCompletionTimeMax);
     document.getElementById("next-trip").textContent = "Next trip: " + formatTime(data.nextTrip.startsAt);
     document.getElementById("window").textContent =
@@ -618,6 +638,7 @@ try {
       "charge to 100% requested": "Charge to 100% requested",
       "safety override": "Safety override",
       "planning only - no hardware control": "Planning only - no hardware control",
+      price_data_incomplete: "Some charging time has no price data",
     }[String(reason).toLowerCase()];
     if (text) return text;
     return String(reason).replace(/_/g, " ").replace(/SOC/g, "charge").replace(/soc/g, "charge");
